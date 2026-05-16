@@ -32,7 +32,7 @@ flags = --cclib=curl
 
 The `http` module is written in Koka (C FFI), so you import it with `extern import`:
 
-```hica
+```rust
 extern import "http"
 import http_client
 ```
@@ -42,7 +42,7 @@ import http_client
 
 ## Quick start
 
-```hica
+```rust
 extern import "http"
 import http_client
 
@@ -146,4 +146,3 @@ let resp = http_request("GET", "https://api.example.com/me", headers=with_bearer
 ## License
 
 MIT
-
