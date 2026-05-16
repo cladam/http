@@ -13,7 +13,7 @@ fun main()
   val resp = http_get("https://httpbin.org/get", timeout=10)
   println("Status: " ++ resp.status.show)
   println("Body length: " ++ resp.body.count.show ++ " bytes")
-  println("OK? " ++ resp.is-ok.show)
+  println("OK? " ++ resp.is_ok.show)
   println("")
 
   println("--- HTTP POST (JSON) ---")

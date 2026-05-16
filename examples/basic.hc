@@ -1,11 +1,12 @@
-import http_client
+extern import "http"
+import "../src/http_client"
 
 fun main() {
   // Simple GET
   println("--- GET ---")
-  let resp = http_get("https://httpbin.org/get", timeout=10)
+  let resp = http_get("https://httpbin.org/get")
   println("Status: " + show(resp.status))
-  println("OK? " + show(resp.is_ok))
+  println("OK? " + show(resp.status >= 200))
 
   // Parse and inspect headers
   let hdrs = parse_headers(resp.headers)
@@ -26,7 +27,7 @@ fun main() {
   println("--- URL building ---")
   let target = build_url("https://httpbin.org/get", [Param { key: "page", value: "1" }, Param { key: "limit", value: "10" }])
   println("URL: " + target)
-  let qresp = http_get(target, timeout=10)
+  let qresp = http_get(target)
   println("Status: " + show(qresp.status))
 
   // Auth header (just show how to build it)

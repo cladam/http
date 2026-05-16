@@ -15,7 +15,7 @@ pub fun rejoin(parts: list<string>, sep: string) : string => match parts {
 pub fun parse_header_line(line: string) : Header {
   let parts = split(trim(line), ":")
   match parts {
-    [name, ..rest] => Header { name: trim(name), value: trim(rejoin(rest, ":")) },
+    [n, ..rest] => Header { name: trim(n), value: trim(rejoin(rest, ":")) },
     _ => Header { name: "", value: "" }
   }
 }
@@ -42,14 +42,19 @@ pub fun parse_headers(raw: string) : list<Header> {
 
 // Look up a header value by name (case-insensitive)
 // Returns "" if not found
-pub fun get_header(hdrs: list<Header>, name: string) : string => match hdrs {
+pub fun get_header(hdrs: list<Header>, key: string) : string => match hdrs {
   [] => "",
-  [h, ..rest] => if to_lower(h.name) == to_lower(name) { h.value } else { get_header(rest, name) }
+  [h, ..rest] => if to_lower(h.name) == to_lower(key) { h.value } else { get_header(rest, key) }
 }
 
 // Check if a header exists by name (case-insensitive)
-pub fun has_header(hdrs: list<Header>, name: string) : bool {
-  get_header(hdrs, name) != ""
+pub fun has_header(hdrs: list<Header>, key: string) : bool {
+  get_header(hdrs, key) != ""
+}
+
+// Get a header value directly from a raw header string
+pub fun find_header(raw: string, key: string) : string {
+  get_header(parse_headers(raw), key)
 }
 
 pub fun show_header(h: Header) : string {

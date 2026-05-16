@@ -4,70 +4,107 @@ Hica HTTP client library built on top of libcurl.
 
 ## Requirements
 
-- [libcurl](https://curl.se/libcurl/) installed on your system
+- [libcurl](https://curl.se/libcurl/) installed on your system (ships with macOS, `apt install libcurl4-openssl-dev` on Debian/Ubuntu)
 - [Koka](https://koka-lang.github.io/) 3.2.3+
-- [Hica](https://github.com/niclas-claes/hica) 0.13.0+
+- [Hica](https://github.com/cladam/hica) 0.16.0+
 
-## Usage
+## Setup
 
-Import the barrel module to get everything:
+Add the library as a git submodule in your project:
+
+```sh
+mkdir -p lib
+git submodule add https://github.com/cladam/hica-http lib/http
+```
+
+Then configure your `hica.ini` to include the library source and link libcurl:
+
+```ini
+[project]
+name = "my-app"
+version = "0.1.0"
+entry = "main.hc"
+
+[koka]
+include = lib/http/src
+flags = --cclib=curl
+```
+
+The `http` module is written in Koka (C FFI), so you import it with `extern import`:
 
 ```hica
+extern import "http"
 import http_client
 ```
 
-Or import individual modules:
+`extern import` passes the Koka module through without compilation.
+`import http_client` brings in the Hica utilities (headers, URL building, auth helpers).
+
+## Quick start
 
 ```hica
-import http       // low-level: http_get, http_post, http_request, ...
-import headers    // header parsing: parse-headers, get-header, ...
-import url        // URL building: build-url, build-query, Param, ...
-```
-
-### Quick example
-
-```hica
+extern import "http"
 import http_client
 
 fun main() {
+  // Simple GET request
   let resp = http_get("https://httpbin.org/get", timeout=10)
   println("Status: " + show(resp.status))
-  println("Content-Type: " + response-content-type(resp))
+  println("OK? " + show(is_ok(resp)))
+
+  // Parse response headers
+  let hdrs = parse_headers(resp.headers)
+  println("Content-Type: " + get_header(hdrs, "Content-Type"))
 
   // JSON POST
-  let post-resp = json-post("https://api.example.com/data", body="\{\"key\":\"value\"\}")
-  println("OK? " + show(post-resp.is-ok))
+  let post_resp = json_post("https://httpbin.org/post", "\{\"hello\":\"world\"\}")
+  println("Post status: " + show(post_resp.status))
 
-  // URL with query parameters
-  let target = build-url("https://api.example.com/search", [Param("q", "hica"), Param("limit", "10")])
-  let qresp = http_get(target)
+  // Build URL with query parameters
+  let url = build_url("https://httpbin.org/get", [
+    Param { key: "page", value: "1" },
+    Param { key: "limit", value: "10" }
+  ])
+  let qresp = http_get(url)
+  println("Query status: " + show(qresp.status))
 }
 ```
 
-### Compiling
+Build and run:
 
 ```sh
-# Compile with hica, then build with Koka (requires --cclib=-lcurl)
-hica src/http_client.hc
-koka -isrc --cclib=-lcurl your-app.kk
+hica build main.hc
+./main
 ```
 
-## Modules
+The `[koka]` section in `hica.ini` handles include paths and compiler flags automatically.
 
-### `http` (Koka)
+## API reference
 
-Low-level libcurl bindings. All HTTP methods:
+### `http` (Koka — extern import)
+
+Core HTTP functions powered by libcurl:
 
 | Function | Description |
 |---|---|
 | `http_get(url, timeout=0)` | GET request |
-| `http_post(url, body, content-type, timeout)` | POST request |
-| `http_put(url, body, content-type, timeout)` | PUT request |
+| `http_post(url, body, content_type, timeout)` | POST request |
+| `http_put(url, body, content_type, timeout)` | PUT request |
 | `http_delete(url, timeout)` | DELETE request |
-| `http_patch(url, body, content-type, timeout)` | PATCH request |
+| `http_patch(url, body, content_type, timeout)` | PATCH request |
 | `http_head(url, timeout)` | HEAD request |
-| `http_request(method, url, body, content-type, headers, timeout)` | General request |
-| `is-ok(resp)` / `is-redirect(resp)` / `is-client-error(resp)` / `is-server-error(resp)` | Status checks |
+| `http_request(method, url, body, content_type, headers, timeout)` | General request with custom headers |
+| `is_ok(resp)` | True if status is 2xx |
+| `is_redirect(resp)` | True if status is 3xx |
+| `is_client_error(resp)` | True if status is 4xx |
+| `is_server_error(resp)` | True if status is 5xx |
+| `json_get(url, timeout)` | GET with `Accept: application/json` |
+| `json_post(url, body, timeout)` | POST with JSON content type |
+| `json_put(url, body, timeout)` | PUT with JSON content type |
+| `json_patch(url, body, timeout)` | PATCH with JSON content type |
+| `form_post(url, body, timeout)` | POST with form-urlencoded content type |
+
+All functions return an `http_response` with fields: `status` (int), `body` (string), `headers` (string).
 
 ### `headers` (Hica)
 
@@ -75,11 +112,10 @@ Header parsing and lookup:
 
 | Function | Description |
 |---|---|
-| `parse-headers(raw)` | Parse raw header string into `list<header>` |
-| `get-header(hdrs, name)` | Look up header by name (case-insensitive) |
-| `has-header(hdrs, name)` | Check if header exists |
-| `response-header(resp, name)` | Get header value directly from response |
-| `response-content-type(resp)` | Get Content-Type from response |
+| `parse_headers(raw)` | Parse raw header string into `list<Header>` |
+| `get_header(hdrs, name)` | Look up header by name (case-insensitive), returns `""` if not found |
+| `has_header(hdrs, name)` | Check if a header exists |
+| `find_header(raw, name)` | Shortcut — parse + look up in one call |
 
 ### `url` (Hica)
 
@@ -87,23 +123,25 @@ URL and query string building:
 
 | Function | Description |
 |---|---|
-| `build-url(base, params)` | Append query parameters to a URL |
-| `build-query(params)` | Build a query string from `list<param>` |
-| `Param(key, val)` | Query parameter constructor |
+| `build_url(base, params)` | Append query parameters to a URL |
+| `build_query(params)` | Build a query string from `list<Param>` |
+| `encode_param(p)` | Encode a single `Param` as `key=value` |
+| `Param { key, value }` | Query parameter constructor |
 
 ### `http_client` (Hica barrel)
 
-Re-exports all modules plus convenience helpers:
+Re-exports `headers` and `url`, plus auth helpers:
 
 | Function | Description |
 |---|---|
-| `json-get(url, timeout)` | GET with `Accept: application/json` |
-| `json-post(url, body, timeout)` | POST with JSON content-type |
-| `json-put(url, body, timeout)` | PUT with JSON content-type |
-| `json-patch(url, body, timeout)` | PATCH with JSON content-type |
-| `form-post(url, body, timeout)` | POST with form-encoded content-type |
-| `with-bearer(token)` | Build Bearer auth header string |
-| `with-basic-auth(credentials)` | Build Basic auth header string |
+| `with_bearer(token)` | Build `Authorization: Bearer <token>` header string |
+| `with_basic_auth(credentials)` | Build `Authorization: Basic <credentials>` header string |
+
+Use with `http_request`:
+
+```hica
+let resp = http_request("GET", "https://api.example.com/me", headers=with_bearer(my_token))
+```
 
 ## License
 

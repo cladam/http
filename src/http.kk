@@ -27,7 +27,7 @@ pub struct http_response
 
 // Raw request function — returns (status, body, headers) tuple.
 // All HTTP methods go through this single C function.
-extern http_request-raw(
+extern http_request_raw(
   method       : string,
   url          : string,
   body         : string,
@@ -48,7 +48,7 @@ extern http_request-raw(
 // println(resp.body)
 // ```
 pub fun http_get( url : string, timeout : int = 0 ) : io http_response
-  val (status, body, hdrs) = http_request-raw("GET", url, "", "", "", timeout)
+  val (status, body, hdrs) = http_request_raw("GET", url, "", "", "", timeout)
   Http_response(status, body, hdrs)
 
 // Perform an HTTP POST request with a body.
@@ -57,27 +57,27 @@ pub fun http_get( url : string, timeout : int = 0 ) : io http_response
 // val resp = http_post("https://httpbin.org/post", "{\"key\":\"value\"}", content-type="application/json")
 // ```
 pub fun http_post( url : string, body : string = "", content-type : string = "", timeout : int = 0 ) : io http_response
-  val (status, rbody, hdrs) = http_request-raw("POST", url, body, content-type, "", timeout)
+  val (status, rbody, hdrs) = http_request_raw("POST", url, body, content-type, "", timeout)
   Http_response(status, rbody, hdrs)
 
 // Perform an HTTP PUT request.
 pub fun http_put( url : string, body : string = "", content-type : string = "", timeout : int = 0 ) : io http_response
-  val (status, rbody, hdrs) = http_request-raw("PUT", url, body, content-type, "", timeout)
+  val (status, rbody, hdrs) = http_request_raw("PUT", url, body, content-type, "", timeout)
   Http_response(status, rbody, hdrs)
 
 // Perform an HTTP DELETE request.
 pub fun http_delete( url : string, timeout : int = 0 ) : io http_response
-  val (status, body, hdrs) = http_request-raw("DELETE", url, "", "", "", timeout)
+  val (status, body, hdrs) = http_request_raw("DELETE", url, "", "", "", timeout)
   Http_response(status, body, hdrs)
 
 // Perform an HTTP PATCH request.
 pub fun http_patch( url : string, body : string = "", content-type : string = "", timeout : int = 0 ) : io http_response
-  val (status, rbody, hdrs) = http_request-raw("PATCH", url, body, content-type, "", timeout)
+  val (status, rbody, hdrs) = http_request_raw("PATCH", url, body, content-type, "", timeout)
   Http_response(status, rbody, hdrs)
 
 // Perform an HTTP HEAD request (no body returned).
 pub fun http_head( url : string, timeout : int = 0 ) : io http_response
-  val (status, body, hdrs) = http_request-raw("HEAD", url, "", "", "", timeout)
+  val (status, body, hdrs) = http_request_raw("HEAD", url, "", "", "", timeout)
   Http_response(status, body, hdrs)
 
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ pub fun http_request(
   headers       : string = "",
   timeout       : int    = 0
 ) : io http_response
-  val (status, rbody, hdrs) = http_request-raw(method, url, body, content-type, headers, timeout)
+  val (status, rbody, hdrs) = http_request_raw(method, url, body, content-type, headers, timeout)
   Http_response(status, rbody, hdrs)
 
 // ---------------------------------------------------------------------------
