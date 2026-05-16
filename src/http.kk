@@ -121,3 +121,27 @@ pub fun is-server-error( resp : http-response ) : bool
 // Show an http-response
 pub fun show( resp : http-response ) : string
   "HTTP " ++ resp.status.show ++ " (" ++ resp.body.count.show ++ " bytes)"
+
+// ---------------------------------------------------------------------------
+// JSON convenience helpers
+// ---------------------------------------------------------------------------
+
+// GET with Accept: application/json header.
+pub fun json-get( url : string, timeout : int = 0 ) : io http-response
+  http-request("GET", url, headers="Accept: application/json", timeout=timeout)
+
+// POST with Content-Type: application/json.
+pub fun json-post( url : string, body : string, timeout : int = 0 ) : io http-response
+  http-post(url, body, content-type="application/json", timeout=timeout)
+
+// PUT with Content-Type: application/json.
+pub fun json-put( url : string, body : string, timeout : int = 0 ) : io http-response
+  http-put(url, body, content-type="application/json", timeout=timeout)
+
+// PATCH with Content-Type: application/json.
+pub fun json-patch( url : string, body : string, timeout : int = 0 ) : io http-response
+  http-patch(url, body, content-type="application/json", timeout=timeout)
+
+// POST with Content-Type: application/x-www-form-urlencoded.
+pub fun form-post( url : string, body : string, timeout : int = 0 ) : io http-response
+  http-post(url, body, content-type="application/x-www-form-urlencoded", timeout=timeout)

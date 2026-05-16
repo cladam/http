@@ -1,33 +1,36 @@
-import http-client
+import http_client
 
 fun main() {
   // Simple GET
   println("--- GET ---")
-  let resp = http-get("https://httpbin.org/get", timeout=10)
+  let resp = http_get("https://httpbin.org/get", timeout=10)
   println("Status: " + show(resp.status))
-  println("OK? " + show(resp.is-ok))
+  println("OK? " + show(resp.is_ok))
 
   // Parse and inspect headers
-  let hdrs = parse-headers(resp.headers)
-  println("Content-Type: " + response-content-type(resp))
-  println("Has Server header? " + show(has-header(hdrs, "Server")))
+  let hdrs = parse_headers(resp.headers)
+  println("Content-Type: " + get_header(hdrs, "Content-Type"))
+  println("Has Server header? " + show(has_header(hdrs, "Server")))
+
+  // Shortcut: find header directly from raw string
+  println("Server: " + find_header(resp.headers, "Server"))
 
   // JSON POST
   println("")
   println("--- JSON POST ---")
-  let post-resp = json-post("https://httpbin.org/post", body="\{\"hello\":\"world\"\}")
-  println("Status: " + show(post-resp.status))
+  let post_resp = json_post("https://httpbin.org/post", "\{\"hello\":\"world\"\}")
+  println("Status: " + show(post_resp.status))
 
   // Build URL with query parameters
   println("")
   println("--- URL building ---")
-  let target = build-url("https://httpbin.org/get", [Param("page", "1"), Param("limit", "10")])
+  let target = build_url("https://httpbin.org/get", [Param { key: "page", value: "1" }, Param { key: "limit", value: "10" }])
   println("URL: " + target)
-  let qresp = http-get(target, timeout=10)
+  let qresp = http_get(target, timeout=10)
   println("Status: " + show(qresp.status))
 
   // Auth header (just show how to build it)
   println("")
   println("--- Auth ---")
-  println("Bearer header: " + with-bearer("my-secret-token"))
+  println("Bearer header: " + with_bearer("my-secret-token"))
 }
