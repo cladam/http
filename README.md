@@ -13,13 +13,13 @@ Hica HTTP client library built on top of libcurl.
 Import the barrel module to get everything:
 
 ```hica
-import http-client
+import http_client
 ```
 
 Or import individual modules:
 
 ```hica
-import http       // low-level: http-get, http-post, http-request, ...
+import http       // low-level: http_get, http_post, http_request, ...
 import headers    // header parsing: parse-headers, get-header, ...
 import url        // URL building: build-url, build-query, Param, ...
 ```
@@ -27,10 +27,10 @@ import url        // URL building: build-url, build-query, Param, ...
 ### Quick example
 
 ```hica
-import http-client
+import http_client
 
 fun main() {
-  let resp = http-get("https://httpbin.org/get", timeout=10)
+  let resp = http_get("https://httpbin.org/get", timeout=10)
   println("Status: " + show(resp.status))
   println("Content-Type: " + response-content-type(resp))
 
@@ -40,7 +40,7 @@ fun main() {
 
   // URL with query parameters
   let target = build-url("https://api.example.com/search", [Param("q", "hica"), Param("limit", "10")])
-  let qresp = http-get(target)
+  let qresp = http_get(target)
 }
 ```
 
@@ -48,7 +48,7 @@ fun main() {
 
 ```sh
 # Compile with hica, then build with Koka (requires --cclib=-lcurl)
-hica src/http-client.hc
+hica src/http_client.hc
 koka -isrc --cclib=-lcurl your-app.kk
 ```
 
@@ -60,13 +60,13 @@ Low-level libcurl bindings. All HTTP methods:
 
 | Function | Description |
 |---|---|
-| `http-get(url, timeout=0)` | GET request |
-| `http-post(url, body, content-type, timeout)` | POST request |
-| `http-put(url, body, content-type, timeout)` | PUT request |
-| `http-delete(url, timeout)` | DELETE request |
-| `http-patch(url, body, content-type, timeout)` | PATCH request |
-| `http-head(url, timeout)` | HEAD request |
-| `http-request(method, url, body, content-type, headers, timeout)` | General request |
+| `http_get(url, timeout=0)` | GET request |
+| `http_post(url, body, content-type, timeout)` | POST request |
+| `http_put(url, body, content-type, timeout)` | PUT request |
+| `http_delete(url, timeout)` | DELETE request |
+| `http_patch(url, body, content-type, timeout)` | PATCH request |
+| `http_head(url, timeout)` | HEAD request |
+| `http_request(method, url, body, content-type, headers, timeout)` | General request |
 | `is-ok(resp)` / `is-redirect(resp)` / `is-client-error(resp)` / `is-server-error(resp)` | Status checks |
 
 ### `headers` (Hica)
@@ -91,7 +91,7 @@ URL and query string building:
 | `build-query(params)` | Build a query string from `list<param>` |
 | `Param(key, val)` | Query parameter constructor |
 
-### `http-client` (Hica barrel)
+### `http_client` (Hica barrel)
 
 Re-exports all modules plus convenience helpers:
 

@@ -1,5 +1,5 @@
 /*
- * http-inline.c — libcurl bindings for Koka
+ * http_inline.c — libcurl bindings for Koka
  * Part of the hica http library
  * Copyright (C) 2026 Claes Adamsson <claes.adamsson@gmail.com>
  * MIT License

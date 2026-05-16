@@ -1,10 +1,10 @@
 /*
- * http-url.kk — URL and query string utilities
+ * http_url.kk — URL and query string utilities
  * Part of the hica http library
  * Copyright (C) 2026 Claes Adamsson <claes.adamsson@gmail.com>
  * MIT License
  */
-module http-url
+module http_url
 
 // A URL query parameter.
 pub struct param

@@ -10,14 +10,14 @@ import http
 
 fun main()
   println("--- HTTP GET ---")
-  val resp = http-get("https://httpbin.org/get", timeout=10)
+  val resp = http_get("https://httpbin.org/get", timeout=10)
   println("Status: " ++ resp.status.show)
   println("Body length: " ++ resp.body.count.show ++ " bytes")
   println("OK? " ++ resp.is-ok.show)
   println("")
 
   println("--- HTTP POST (JSON) ---")
-  val post-resp = http-post(
+  val post-resp = http_post(
     "https://httpbin.org/post",
     body="{\"hello\":\"world\"}",
     content-type="application/json",
@@ -29,7 +29,7 @@ fun main()
   println("")
 
   println("--- HTTP HEAD ---")
-  val head-resp = http-head("https://httpbin.org/get", timeout=10)
+  val head-resp = http_head("https://httpbin.org/get", timeout=10)
   println("Status: " ++ head-resp.status.show)
   println("Body length: " ++ head-resp.body.count.show ++ " (should be 0)")
   println("Headers:")

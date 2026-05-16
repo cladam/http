@@ -1,10 +1,10 @@
 /*
- * http-headers.kk — HTTP header parsing utilities
+ * http_headers.kk — HTTP header parsing utilities
  * Part of the hica http library
  * Copyright (C) 2026 Claes Adamsson <claes.adamsson@gmail.com>
  * MIT License
  */
-module http-headers
+module http_headers
 
 // A parsed HTTP header with name and value.
 pub struct header
