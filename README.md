@@ -17,17 +17,19 @@ mkdir -p lib
 git submodule add https://github.com/cladam/hica-http lib/http
 ```
 
-Then configure your `hica.ini` to include the library source and link libcurl:
+Then configure your `hica.hml` to include the library source and link libcurl:
 
-```ini
-[project]
-name = "my-app"
-version = "0.1.0"
-entry = "main.hc"
+```hml
+@project {
+    name: "my-app"
+    version: "0.1.0"
+    entry: "main.hc"
+}
 
-[koka]
-include = lib/http/src
-flags = --cclib=curl
+@koka {
+    include: "./lib/http/src"
+    flags: "--cclib=curl"
+}
 ```
 
 The `http` module is written in Koka (C FFI), so you import it with `extern import`:
@@ -77,7 +79,7 @@ hica build main.hc
 ./main
 ```
 
-The `[koka]` section in `hica.ini` handles include paths and compiler flags automatically.
+The `@koka` block in `hica.hml` handles include paths and compiler flags automatically.
 
 ## API reference
 

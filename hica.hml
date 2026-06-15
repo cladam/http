@@ -1,0 +1,10 @@
+@project {
+    name: "http"
+    version: "0.1.0"
+    license: "MIT"
+    entry: "src/main.hc"
+}
+
+@koka {
+    flags: "--cclib=curl"
+}
