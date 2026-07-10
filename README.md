@@ -8,16 +8,20 @@ Hica HTTP client library built on top of libcurl.
 - [Koka](https://koka-lang.github.io/) 3.2.3+
 - [Hica](https://github.com/cladam/hica) 0.41.2+
 
-## Setup
+## Installation
 
-Add the library as a git submodule in your project:
+### 1. Add the package
 
 ```sh
-mkdir -p lib
-git submodule add https://github.com/cladam/hica-http lib/http
+hica add http
+hica fetch
 ```
 
-Then configure your `hica.hml` to include the library source and link libcurl:
+This records the dependency in `hica.hml` and downloads the package.
+
+### 2. Configure `hica.hml`
+
+Add the SQLite3 linker flag to your project's `hica.hml`:
 
 ```hml
 @project {
@@ -32,11 +36,13 @@ Then configure your `hica.hml` to include the library source and link libcurl:
 }
 ```
 
+### 3. Import
+
 The `http` module is written in Koka (C FFI), so you import it with `extern import`:
 
 ```rust
 extern import "http"
-import http_client
+import "http_client"
 ```
 
 `extern import` passes the Koka module through without compilation.
@@ -46,7 +52,7 @@ import http_client
 
 ```rust
 extern import "http"
-import http_client
+import "http_client"
 
 fun main() {
   // Simple GET request
