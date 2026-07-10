@@ -11,5 +11,8 @@ src/*
 !src/http.kk
 !src/http-inline.c
 
+tests/*
+!tests/*.hc
+
 examples/*
 !examples/*.hc

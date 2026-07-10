@@ -108,6 +108,8 @@ Core HTTP functions powered by libcurl:
 
 All functions return an `http_response` with fields: `status` (int), `body` (string), `headers` (string).
 
+> **Note (Hica callers):** `is_ok` collides with Hica's built-in `Result` combinator of the same name. In `.hc` code, `is_ok(resp)` resolves to the built-in (compiled to `.is-right`) instead of this function — use `resp.status >= 200 && resp.status < 300` instead. `is_redirect`, `is_client_error`, and `is_server_error` are unaffected, as are all Koka callers.
+
 ### `headers` (Hica)
 
 Header parsing and lookup:
