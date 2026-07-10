@@ -1,8 +1,15 @@
 @project {
     name: "http"
-    version: "0.1.0"
+    version: "0.2.0"
     license: "MIT"
     entry: "src/main.hc"
+}
+
+@description {
+    summary: "http client library for hica"
+    author: "Claes Adamsson"
+    homepage: "https://www.hica.dev"
+    repository: "https://github.com/cladam/http"
 }
 
 @koka {

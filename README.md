@@ -6,7 +6,7 @@ Hica HTTP client library built on top of libcurl.
 
 - [libcurl](https://curl.se/libcurl/) installed on your system (ships with macOS, `apt install libcurl4-openssl-dev` on Debian/Ubuntu)
 - [Koka](https://koka-lang.github.io/) 3.2.3+
-- [Hica](https://github.com/cladam/hica) 0.37.0+
+- [Hica](https://github.com/cladam/hica) 0.41.2+
 
 ## Setup
 
