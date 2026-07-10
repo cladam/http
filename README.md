@@ -6,7 +6,7 @@ Hica HTTP client library built on top of libcurl.
 
 - [libcurl](https://curl.se/libcurl/) installed on your system (ships with macOS, `apt install libcurl4-openssl-dev` on Debian/Ubuntu)
 - [Koka](https://koka-lang.github.io/) 3.2.3+
-- [Hica](https://github.com/cladam/hica) 0.16.0+
+- [Hica](https://github.com/cladam/hica) 0.37.0+
 
 ## Setup
 
@@ -56,7 +56,7 @@ fun main() {
 
   // Parse response headers
   let hdrs = parse_headers(resp.headers)
-  println("Content-Type: " + get_header(hdrs, "Content-Type"))
+  println("Content-Type: " + unwrap_maybe_or(get_header(hdrs, "Content-Type"), "(none)"))
 
   // JSON POST
   let post_resp = json_post("https://httpbin.org/post", "\{\"hello\":\"world\"\}")
@@ -115,9 +115,9 @@ Header parsing and lookup:
 | Function | Description |
 |---|---|
 | `parse_headers(raw)` | Parse raw header string into `list<Header>` |
-| `get_header(hdrs, name)` | Look up header by name (case-insensitive), returns `""` if not found |
+| `get_header(hdrs, name)` | Look up header by name (case-insensitive), returns `maybe<string>` (`None` if not found) |
 | `has_header(hdrs, name)` | Check if a header exists |
-| `find_header(raw, name)` | Shortcut — parse + look up in one call |
+| `find_header(raw, name)` | Shortcut — parse + look up in one call, returns `maybe<string>` |
 
 ### `url` (Hica)
 

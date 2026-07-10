@@ -10,11 +10,11 @@ fun main() {
 
   // Parse and inspect headers
   let hdrs = parse_headers(resp.headers)
-  println("Content-Type: " + get_header(hdrs, "Content-Type"))
+  println("Content-Type: " + unwrap_maybe_or(get_header(hdrs, "Content-Type"), "(none)"))
   println("Has Server header? " + show(has_header(hdrs, "Server")))
 
   // Shortcut: find header directly from raw string
-  println("Server: " + find_header(resp.headers, "Server"))
+  println("Server: " + unwrap_maybe_or(find_header(resp.headers, "Server"), "(none)"))
 
   // JSON POST
   println("")

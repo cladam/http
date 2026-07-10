@@ -35,13 +35,13 @@ jobs:
           & "$env:TEMP\install-koka.bat"
           "$env:LOCALAPPDATA\koka\bin" | Out-File -Append -FilePath $env:GITHUB_PATH
 
-      - name: Install Hica (Unix)
+      - name: Install hica (Unix)
         if: runner.os != 'Windows'
         run: |
           curl -fsSL https://cladam.github.io/hica/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Install Hica (Windows)
+      - name: Install hica (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
