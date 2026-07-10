@@ -6,5 +6,6 @@
 }
 
 @koka {
+    include: "./src"
     flags: "--cclib=curl"
 }

@@ -9,12 +9,7 @@ vendor/
 src/*
 !src/*.hc
 !src/http.kk
-!src/http_headers.kk
-!src/http_url.kk
 !src/http-inline.c
 
 examples/*
 !examples/*.hc
-
-tests/*
-!tests/*.hc
