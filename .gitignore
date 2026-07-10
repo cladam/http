@@ -1,4 +1,20 @@
-.koka/
 
 # tbdflow intent log (local-only, never committed)
 .tbdflow-intent.json
+.build/
+.koka/
+lib/
+vendor/
+
+src/*
+!src/*.hc
+!src/http.kk
+!src/http_headers.kk
+!src/http_url.kk
+!src/http-inline.c
+
+examples/*
+!examples/*.hc
+
+tests/*
+!tests/*.hc
