@@ -14,5 +14,5 @@
 
 @koka {
     include: "./src"
-    flags: "--cclib=curl"
+    flags: "--cclib=curl --cclib=microhttpd"
 }

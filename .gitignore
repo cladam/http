@@ -10,6 +10,7 @@ src/*
 !src/*.hc
 !src/http.kk
 !src/http-inline.c
+!src/http_server_*.*
 
 tests/*
 !tests/*.hc
