@@ -1,12 +1,16 @@
 # http
 
-Hica HTTP client library built on top of libcurl.
+Hica HTTP **client and server** library. The client is built on
+[libcurl](https://curl.se/libcurl/); the server on
+[libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/), with a
+FastAPI-style typed router on top.
 
 ## Requirements
 
-- [libcurl](https://curl.se/libcurl/) installed on your system (ships with macOS, `apt install libcurl4-openssl-dev` on Debian/Ubuntu)
+- [libcurl](https://curl.se/libcurl/) — for the client (ships with macOS, `apt install libcurl4-openssl-dev` on Debian/Ubuntu)
+- [libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/) — for the server (`brew install libmicrohttpd` on macOS, `apt install libmicrohttpd-dev` on Debian/Ubuntu)
 - [Koka](https://koka-lang.github.io/) 3.2.3+
-- [Hica](https://github.com/cladam/hica) 0.41.2+
+- [Hica](https://github.com/cladam/hica) 0.41.6+
 
 ## Installation
 
@@ -21,7 +25,8 @@ This records the dependency in `hica.hml` and downloads the package.
 
 ### 2. Configure `hica.hml`
 
-Add the SQLite3 linker flag to your project's `hica.hml`:
+Add the linker and include flags to your project's `hica.hml`. The client only
+needs `--cclib=curl`; the server additionally needs libmicrohttpd:
 
 ```hml
 @project {
@@ -32,9 +37,15 @@ Add the SQLite3 linker flag to your project's `hica.hml`:
 
 @koka {
     include: "./lib/http/src"
-    flags: "--cclib=curl"
+    flags: "--cclib=curl --cclib=microhttpd --ccincdir=/opt/homebrew/include --cclinkopts=-L/opt/homebrew/lib"
 }
 ```
+
+> **Portability note:** the `/opt/homebrew` paths locate libmicrohttpd's headers
+> and library on Apple Silicon macOS. On Intel macOS use `/usr/local`; on Linux
+> libmicrohttpd installs to default search paths, so the extra `--ccincdir` /
+> `--cclinkopts` entries are harmless no-ops and can be omitted. If you only use
+> the client, drop `--cclib=microhttpd` and the two path flags entirely.
 
 ### 3. Import
 
@@ -152,6 +163,127 @@ Use with `http_request`:
 ```hica
 let resp = http_request("GET", "https://api.example.com/me", headers=with_bearer(my_token))
 ```
+
+## Server
+
+The server is built on libmicrohttpd. libmicrohttpd's internal thread handles
+all socket I/O and holds concurrent connections open; requests are handed to
+your handler **one at a time** for sequential processing (the Koka runtime is
+single-threaded). This is well suited to I/O-bound services and tooling.
+
+### Router (recommended)
+
+`router.hc` provides a FastAPI-style typed router: declare routes with
+`get`/`post`/`put`/`delete`/`patch`, and the first matching route wins.
+Unmatched requests return `404` automatically.
+
+```rust
+import "router"
+
+fun handle_get_item(req) : ServerResponse {
+  let id = path_int(req, "id")             // path param /items/{id}
+  let verbose = query_bool(req, "verbose") // ?verbose=true -> maybe<bool>
+  json_response("\{\"id\": " + show(id) + "\}")
+}
+
+fun handle_create(req) : ServerResponse {
+  // req body is available as a string; parse it with the json library
+  json_response(req_body(req))
+}
+
+fun main() {
+  println("Listening on :8080")
+  serve_routes(8080, [
+    get("/",              (req) => json_response("\{\"hello\": \"world\"\}")),
+    get("/items/{id}",    handle_get_item),
+    post("/items",        handle_create),
+    delete("/items/{id}", (req) => status_response(204, ""))
+  ])
+}
+```
+
+#### Route constructors
+
+| Function | Description |
+|---|---|
+| `get(pattern, handler)` | Register a `GET` route |
+| `post(pattern, handler)` | Register a `POST` route |
+| `put(pattern, handler)` | Register a `PUT` route |
+| `delete(pattern, handler)` | Register a `DELETE` route |
+| `patch(pattern, handler)` | Register a `PATCH` route |
+| `any(pattern, handler)` | Match any HTTP method (catch-all) |
+| `serve_routes(port, routes)` | Start serving; dispatches to routes, auto-404. Never returns |
+
+Patterns support `{name}` path parameters, e.g. `/items/{id}/tags/{tag}`.
+Trailing slashes are normalised.
+
+#### Request helpers
+
+Each handler receives a `request`. Read from it with these helpers (all take
+`req` as the first argument):
+
+| Function | Returns | Description |
+|---|---|---|
+| `path_str(req, key)` | `string` | Path parameter (`""` if absent) |
+| `path_int(req, key)` | `int` | Path parameter as int (`0` if absent/non-numeric) |
+| `query_str(req, key)` | `maybe<string>` | Query parameter |
+| `query_int(req, key)` | `maybe<int>` | Query parameter as int |
+| `query_bool(req, key)` | `maybe<bool>` | Query parameter (`true`/`1`, `false`/`0`) |
+| `req_header(req, name)` | `maybe<string>` | Request header (case-insensitive) |
+| `bearer_token(req)` | `maybe<string>` | Token from `Authorization: Bearer ...` |
+| `req_method(req)` | `string` | Request method (`GET`, `POST`, ...) |
+| `req_path(req)` | `string` | Request path |
+| `req_body(req)` | `string` | Raw request body (parse with the json library) |
+
+#### Response constructors
+
+| Function | Description |
+|---|---|
+| `text_response(body)` | `200` with `text/plain` |
+| `json_response(body)` | `200` with `application/json` |
+| `html_response(body)` | `200` with `text/html` |
+| `not_found_response()` | `404 Not Found` |
+| `error_response(msg)` | `500` with the message |
+| `status_response(status, body)` | Custom status with a plain-text body |
+
+### Low-level server (`http_server`)
+
+For full control, use `serve` directly without the router. Your handler
+receives a raw `server_request`; read its fields with the accessor helpers.
+
+```rust
+import "http_server"
+
+fun main() {
+  serve(8080, (req) => {
+    if request_path(req) == "/health" {
+      text_response("ok")
+    } else {
+      not_found_response()
+    }
+  })
+}
+```
+
+| Function | Description |
+|---|---|
+| `serve(port, handler)` | Start serving; every request goes to `handler`. Never returns |
+| `request_method(req)` | Request method as `string` |
+| `request_path(req)` | Request path as `string` |
+| `request_query(req)` | Raw query string (`"k=v&k2=v2"`) |
+| `request_headers(req)` | Raw request headers (`"Name: Value\n..."`) |
+| `request_body(req)` | Request body as `string` |
+
+Build and run a server:
+
+```sh
+hica build examples/server.hc -o server
+./server
+```
+
+See [`examples/server.hc`](examples/server.hc) for the low-level API and
+[`examples/server_router.hc`](examples/server_router.hc) for the router with
+JSON request/response handling.
 
 ## License
 

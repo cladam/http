@@ -101,3 +101,23 @@ pub fun http_server_respond(
 // Stop the server and release all resources.
 pub fun http_server_stop( srv : http_server ) : io ()
   http_server_stop_raw(srv)
+
+// ---------------------------------------------------------------------------
+// Field accessors — Hica callers cannot read fields off an extern Koka
+// struct directly (req.path generates an unknown accessor), so expose these.
+// ---------------------------------------------------------------------------
+
+pub fun request_method( req : server_request ) : string
+  req.method
+
+pub fun request_path( req : server_request ) : string
+  req.path
+
+pub fun request_query( req : server_request ) : string
+  req.query
+
+pub fun request_headers( req : server_request ) : string
+  req.headers
+
+pub fun request_body( req : server_request ) : string
+  req.body

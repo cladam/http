@@ -40,7 +40,7 @@
 
 extern import "http_server_impl"
 extern import "router_impl"
-import "./http_server"
+pub import "./http_server"
 
 // --- Internal helper ---
 // Wraps a user handler (ServerResponse-returning) into the route_response

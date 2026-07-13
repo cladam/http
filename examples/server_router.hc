@@ -74,14 +74,21 @@ fun handle_get_item(req) : ServerResponse {
 }
 
 fun handle_create_item(req) : ServerResponse {
-  match parse_json(req.body) {
+  match parse_json(req_body(req)) {
     Err(e) => status_response(422, "Invalid JSON: " + e),
     Ok(doc) => {
-      let name = unwrap_maybe_or(Some(doc) |> at("name") |> as_str, "")
-      if name == "" {
-        status_response(422, "Missing required field: name")
-      } else {
-        json_response("\{\"created\": true, \"name\": \"" + name + "\"\}")
+      // Note: extract the name with an explicit match rather than
+      // unwrap_maybe_or — this module already uses unwrap_maybe_or with
+      // maybe<int> (query_int), and mixing it with maybe<string> here trips
+      // a monomorphisation limitation in the current hica compiler.
+      match Some(doc) |> at("name") |> as_str {
+        None => status_response(422, "Missing required field: name"),
+        Some(name) =>
+          if name == "" {
+            status_response(422, "Missing required field: name")
+          } else {
+            json_response("\{\"created\": true, \"name\": \"" + name + "\"\}")
+          }
       }
     }
   }
@@ -117,9 +124,9 @@ fun main() {
   serve_routes(8080, [
     get("/",                handle_root),
     get("/items",           handle_list_items),
-    get("/items/{id}",      handle_get_item),
+    get("/items/\{id\}",      handle_get_item),
     post("/items",          handle_create_item),
-    delete("/items/{id}",   handle_delete_item),
+    delete("/items/\{id\}",   handle_delete_item),
     get("/protected",       handle_protected)
   ])
 }

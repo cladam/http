@@ -38,14 +38,14 @@ jobs:
       - name: Install hica (Unix)
         if: runner.os != 'Windows'
         run: |
-          curl -fsSL https://cladam.github.io/hica/install.sh | sh
+          curl -fsSL https://www.hica.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install hica (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          curl -fsSL -o "$env:TEMP\install-hica.ps1" https://cladam.github.io/hica/install.ps1
+          curl -fsSL -o "$env:TEMP\install-hica.ps1" https://www.hica.dev/install.ps1
           & "$env:TEMP\install-hica.ps1"
           "$env:LOCALAPPDATA\hica" | Out-File -Append -FilePath $env:GITHUB_PATH
 
@@ -55,9 +55,13 @@ jobs:
           hica --version
         shell: bash
 
-      - name: Install libcurl (Linux)
+      - name: Install libcurl and libmicrohttpd (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libmicrohttpd-dev
+
+      - name: Install libmicrohttpd (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libmicrohttpd
 
       - name: Run unit tests
         shell: bash
@@ -82,13 +86,30 @@ jobs:
           fi
           exit $failed
 
-      - name: Build example (FFI integration)
+      - name: Build client example (libcurl FFI)
         shell: bash
         continue-on-error: ${{ runner.os == 'Windows' }}
         run: |
           set -e
           hica build examples/basic.hc -o http_example
-          echo "example built and linked against libcurl OK"
+          echo "client example built and linked against libcurl OK"
+
+      - name: Build server example (libmicrohttpd FFI)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          hica build examples/server.hc -o http_server_example
+          echo "server example built and linked against libmicrohttpd OK"
+
+      - name: Build router example (router + json + libmicrohttpd)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          hica fetch
+          hica build examples/server_router.hc -o http_router_example
+          echo "router example built (router + json + libmicrohttpd) OK"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

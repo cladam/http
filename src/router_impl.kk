@@ -48,7 +48,7 @@ pub fun make_route_response(status: int, headers: string, body: string) : route_
 // Build a request value from raw strings, running path matching and query
 // parsing the same way the dispatcher does.  Useful for tests and manual
 // dispatch.  If the path does not match the pattern, path params are empty.
-pub fun build_request(method: string, pattern: string, path: string, query: string, headers: string, body: string) : div request
+pub fun build_request(method: string, pattern: string, path: string, query: string, headers: string, body: string) : request
   val pp = match match_path(pattern, path)
              Just(p) -> p
              Nothing -> []
@@ -65,7 +65,7 @@ pub fun build_request(method: string, pattern: string, path: string, query: stri
 // Trailing slashes are normalised before matching.
 // ---------------------------------------------------------------------------
 
-pub fun match_path(pattern: string, path: string) : div maybe<list<(string, string)>>
+pub fun match_path(pattern: string, path: string) : maybe<list<(string, string)>>
   val pat = normalize(pattern)
   val pth = normalize(path)
   match_parts(split(pat, "/"), split(pth, "/"), [])
@@ -80,24 +80,28 @@ fun normalize(s: string) : string
 // Match a path against a pattern and return the captured value for `key`.
 // Returns Nothing if the path does not match, or if the pattern has no such
 // parameter.  Convenient for tests and manual routing.
-pub fun match_param(pattern: string, path: string, key: string) : div maybe<string>
+pub fun match_param(pattern: string, path: string, key: string) : maybe<string>
   match match_path(pattern, path)
     Nothing      -> Nothing
     Just(params) -> lookup_kv(params, key)
 
-fun match_parts(pat: list<string>, path: list<string>, acc: list<(string, string)>) : div maybe<list<(string, string)>>
-  match (pat, path)
-    ([], [])           -> Just(reverse(acc))
-    ([], _)            -> Nothing
-    (_, [])            -> Nothing
-    (Cons(p, ps), Cons(v, vs)) ->
-      if p.starts-with("{").bool && p.ends-with("}").bool
-        then
-          val name = str_slice(p, 1, p.count - 1)
-          match_parts(ps, vs, [(name, v)] ++ acc)
-        else if p == v
-          then match_parts(ps, vs, acc)
-          else Nothing
+// Structural recursion on `pat` (its tail `ps` is strictly smaller) keeps this
+// total — no `div` effect, so it never leaks divergence into user handlers.
+fun match_parts(pat: list<string>, path: list<string>, acc: list<(string, string)>) : maybe<list<(string, string)>>
+  match pat
+    [] -> match path
+      [] -> Just(reverse(acc))
+      _  -> Nothing
+    Cons(p, ps) -> match path
+      [] -> Nothing
+      Cons(v, vs) ->
+        if p.starts-with("{").bool && p.ends-with("}").bool
+          then
+            val name = str_slice(p, 1, p.count - 1)
+            match_parts(ps, vs, [(name, v)] ++ acc)
+          else if p == v
+            then match_parts(ps, vs, acc)
+            else Nothing
 
 // ---------------------------------------------------------------------------
 // Query string parsing: "k=v&k2=v2" -> [("k","v"),("k2","v2")]
@@ -130,7 +134,7 @@ pub fun path_str(req: request, key: string) : string
     Just(v) -> v
 
 // Path parameter as int (0 if absent or not parseable).
-pub fun path_int(req: request, key: string) : div int
+pub fun path_int(req: request, key: string) : int
   parse_int_str(path_str(req, key))
 
 // Query parameter as maybe<string>.
@@ -138,7 +142,7 @@ pub fun query_str(req: request, key: string) : maybe<string>
   lookup_kv(req.query_params, key)
 
 // Query parameter as maybe<int>.
-pub fun query_int(req: request, key: string) : div maybe<int>
+pub fun query_int(req: request, key: string) : maybe<int>
   match lookup_kv(req.query_params, key)
     Nothing -> Nothing
     Just(v) -> parse_int_str_maybe(v)
@@ -160,6 +164,22 @@ pub fun query_bool(req: request, key: string) : maybe<bool>
 // Find a request header by name. Returns maybe<string>.
 pub fun req_header(req: request, key: string) : maybe<string>
   find_in_headers(split(req.headers, "\n"), to-lower(key))
+
+// ---------------------------------------------------------------------------
+// Raw field accessors — Hica callers cannot read fields off an extern Koka
+// struct directly (req.body generates an unknown accessor), so expose these.
+// Named req_* to match req_header and to avoid colliding with
+// http_server_impl's request_* accessors (router.hc imports both modules).
+// ---------------------------------------------------------------------------
+
+pub fun req_method(req: request) : string
+  req.method
+
+pub fun req_path(req: request) : string
+  req.path
+
+pub fun req_body(req: request) : string
+  req.body
 
 fun find_in_headers(lines: list<string>, lkey: string) : maybe<string>
   match lines
@@ -209,31 +229,24 @@ fun dispatch_loop(sreq: server_request, qparams: list<(string, string)>, routes:
 // Integer parsing (hand-rolled to avoid stdlib version uncertainty)
 // ---------------------------------------------------------------------------
 
-fun parse_int_str(s: string) : div int
+fun parse_int_str(s: string) : int
   match parse_int_str_maybe(s)
     Nothing -> 0
     Just(n) -> n
 
-fun parse_int_str_maybe(s: string) : div maybe<int>
+fun parse_int_str_maybe(s: string) : maybe<int>
   if s == "" then Nothing
   else if str_slice(s, 0, 1) == "-"
-    then match parse_digits(s, 1, 0)
+    then match parse_digits(s.list.drop(1), 0)
            Nothing -> Nothing
            Just(n) -> Just(0 - n)
-    else parse_digits(s, 0, 0)
+    else parse_digits(s.list, 0)
 
-fun parse_digits(s: string, idx: int, acc: int) : div maybe<int>
-  if idx >= s.count then Just(acc)
-  else
-    match str_slice(s, idx, idx + 1)
-      "0" -> parse_digits(s, idx + 1, acc * 10 + 0)
-      "1" -> parse_digits(s, idx + 1, acc * 10 + 1)
-      "2" -> parse_digits(s, idx + 1, acc * 10 + 2)
-      "3" -> parse_digits(s, idx + 1, acc * 10 + 3)
-      "4" -> parse_digits(s, idx + 1, acc * 10 + 4)
-      "5" -> parse_digits(s, idx + 1, acc * 10 + 5)
-      "6" -> parse_digits(s, idx + 1, acc * 10 + 6)
-      "7" -> parse_digits(s, idx + 1, acc * 10 + 7)
-      "8" -> parse_digits(s, idx + 1, acc * 10 + 8)
-      "9" -> parse_digits(s, idx + 1, acc * 10 + 9)
-      _   -> Nothing
+// Structural recursion over the char list keeps this total (no `div`).
+fun parse_digits(chars: list<char>, acc: int) : maybe<int>
+  match chars
+    Nil -> Just(acc)
+    Cons(c, rest) ->
+      val d = c.int - '0'.int
+      if d >= 0 && d <= 9 then parse_digits(rest, acc * 10 + d)
+      else Nothing

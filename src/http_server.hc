@@ -7,13 +7,22 @@
 //   fun main() {
 //     println("Listening on :8080")
 //     serve(8080, (req) => {
-//       if req.path == "/health" {
+//       if request_path(req) == "/health" {
 //         text_response("ok")
 //       } else {
-//         json_response("\{\"path\": \"" + req.path + "\"\}")
+//         json_response("\{\"path\": \"" + request_path(req) + "\"\}")
 //       }
 //     })
 //   }
+//
+// Read request fields with the accessor helpers (from http_server_impl):
+//   request_method(req)  -> string
+//   request_path(req)    -> string
+//   request_query(req)   -> string  (raw "k=v&k2=v2")
+//   request_headers(req) -> string  (raw "Name: Value\n...")
+//   request_body(req)    -> string
+//
+// For path/query parameter extraction and routing, use router.hc instead.
 
 extern import "http_server_impl"
 
