@@ -6,7 +6,7 @@
 }
 
 @description {
-    summary: "http client library for hica"
+    summary: "HTTP client and server library for hica"
     author: "Claes Adamsson"
     homepage: "https://www.hica.dev"
     repository: "https://github.com/cladam/http"
@@ -14,5 +14,9 @@
 
 @koka {
     include: "./src"
-    flags: "--cclib=curl --cclib=microhttpd"
+    flags: "--cclib=curl --cclib=microhttpd --ccincdir=/opt/homebrew/include --cclinkopts=-L/opt/homebrew/lib"
+}
+
+@dependencies {
+    json: "latest"
 }

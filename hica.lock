@@ -1,0 +1,6 @@
+# hica.lock — auto-generated, do not edit
+
+[[package]]
+name = "json"
+version = "latest"
+source = "registry+pkg.hica.dev@latest"

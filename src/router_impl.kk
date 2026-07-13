@@ -1,0 +1,239 @@
+/*
+ * router_impl.kk — Route types, path matching, param extraction, and dispatch
+ * Part of the hica http library
+ * Copyright (C) 2026 Claes Adamsson <claes.adamsson@gmail.com>
+ * MIT License
+ */
+module router_impl
+
+import http_server_impl
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+// Enhanced request handed to every route handler.
+// path_params holds segments extracted from the route pattern (e.g. {id}).
+// query_params holds key/value pairs parsed from the query string.
+pub struct request
+  method       : string
+  path         : string
+  path_params  : list<(string, string)>
+  query_params : list<(string, string)>
+  headers      : string     // raw "Name: Value\n..." string
+  body         : string
+
+// The response type returned by route handlers.
+pub struct route_response
+  status  : int
+  headers : string
+  body    : string
+
+// A route definition.
+pub struct route
+  method  : string
+  pattern : string
+  handler_fn : (request) -> io route_response
+
+// ---------------------------------------------------------------------------
+// Constructors (called from Hica, which cannot call Koka constructors directly)
+// ---------------------------------------------------------------------------
+
+pub fun make_route(method: string, pattern: string, handler_fn: (request) -> io route_response) : route
+  Route(method, pattern, handler_fn)
+
+pub fun make_route_response(status: int, headers: string, body: string) : route_response
+  Route_response(status, headers, body)
+
+// Build a request value from raw strings, running path matching and query
+// parsing the same way the dispatcher does.  Useful for tests and manual
+// dispatch.  If the path does not match the pattern, path params are empty.
+pub fun build_request(method: string, pattern: string, path: string, query: string, headers: string, body: string) : div request
+  val pp = match match_path(pattern, path)
+             Just(p) -> p
+             Nothing -> []
+  val qp = parse_query_params(query)
+  Request(method, path, pp, qp, headers, body)
+
+// ---------------------------------------------------------------------------
+// Path pattern matching
+//
+// match_path("/items/{id}/tags/{tag}", "/items/42/tags/koka")
+//   => Just([("id","42"), ("tag","koka")])
+//
+// Patterns must match exactly in segment count; {name} captures any segment.
+// Trailing slashes are normalised before matching.
+// ---------------------------------------------------------------------------
+
+pub fun match_path(pattern: string, path: string) : div maybe<list<(string, string)>>
+  val pat = normalize(pattern)
+  val pth = normalize(path)
+  match_parts(split(pat, "/"), split(pth, "/"), [])
+
+// Substring [start, endx) using supported sslice ops. Koka has no s[a:b] syntax.
+fun str_slice(s : string, start : int, endx : int) : string
+  s.slice.sslice/drop(start).sslice/extend(endx - s.count).string
+
+fun normalize(s: string) : string
+  if s != "/" && s.ends-with("/").bool then str_slice(s, 0, s.count - 1) else s
+
+// Match a path against a pattern and return the captured value for `key`.
+// Returns Nothing if the path does not match, or if the pattern has no such
+// parameter.  Convenient for tests and manual routing.
+pub fun match_param(pattern: string, path: string, key: string) : div maybe<string>
+  match match_path(pattern, path)
+    Nothing      -> Nothing
+    Just(params) -> lookup_kv(params, key)
+
+fun match_parts(pat: list<string>, path: list<string>, acc: list<(string, string)>) : div maybe<list<(string, string)>>
+  match (pat, path)
+    ([], [])           -> Just(reverse(acc))
+    ([], _)            -> Nothing
+    (_, [])            -> Nothing
+    (Cons(p, ps), Cons(v, vs)) ->
+      if p.starts-with("{").bool && p.ends-with("}").bool
+        then
+          val name = str_slice(p, 1, p.count - 1)
+          match_parts(ps, vs, [(name, v)] ++ acc)
+        else if p == v
+          then match_parts(ps, vs, acc)
+          else Nothing
+
+// ---------------------------------------------------------------------------
+// Query string parsing: "k=v&k2=v2" -> [("k","v"),("k2","v2")]
+// ---------------------------------------------------------------------------
+
+pub fun parse_query_params(query: string) : list<(string, string)>
+  if query == "" then []
+  else map(split(query, "&"), parse_kv)
+
+fun parse_kv(pair: string) : (string, string)
+  val parts = split(pair, "=")
+  match parts
+    []          -> (pair, "")
+    [k]         -> (k, "")
+    Cons(k, rest) -> (k, join(rest, "="))
+
+// ---------------------------------------------------------------------------
+// Param lookups
+// ---------------------------------------------------------------------------
+
+fun lookup_kv(kvs: list<(string, string)>, key: string) : maybe<string>
+  match kvs
+    []               -> Nothing
+    Cons((k, v), rest) -> if k == key then Just(v) else lookup_kv(rest, key)
+
+// Path parameter as string ("" if not present).
+pub fun path_str(req: request, key: string) : string
+  match lookup_kv(req.path_params, key)
+    Nothing -> ""
+    Just(v) -> v
+
+// Path parameter as int (0 if absent or not parseable).
+pub fun path_int(req: request, key: string) : div int
+  parse_int_str(path_str(req, key))
+
+// Query parameter as maybe<string>.
+pub fun query_str(req: request, key: string) : maybe<string>
+  lookup_kv(req.query_params, key)
+
+// Query parameter as maybe<int>.
+pub fun query_int(req: request, key: string) : div maybe<int>
+  match lookup_kv(req.query_params, key)
+    Nothing -> Nothing
+    Just(v) -> parse_int_str_maybe(v)
+
+// Query parameter as maybe<bool>. Accepts "true"/"1" and "false"/"0".
+pub fun query_bool(req: request, key: string) : maybe<bool>
+  match lookup_kv(req.query_params, key)
+    Nothing       -> Nothing
+    Just("true")  -> Just(True)
+    Just("1")     -> Just(True)
+    Just("false") -> Just(False)
+    Just("0")     -> Just(False)
+    _             -> Nothing
+
+// ---------------------------------------------------------------------------
+// Header lookup (case-insensitive search in the raw header string)
+// ---------------------------------------------------------------------------
+
+// Find a request header by name. Returns maybe<string>.
+pub fun req_header(req: request, key: string) : maybe<string>
+  find_in_headers(split(req.headers, "\n"), to-lower(key))
+
+fun find_in_headers(lines: list<string>, lkey: string) : maybe<string>
+  match lines
+    [] -> Nothing
+    Cons(line, rest) ->
+      val parts = split(trim(line), ":")
+      match parts
+        Cons(n, vs) ->
+          if to-lower(trim(n)) == lkey
+            then Just(trim(join(vs, ":")))
+            else find_in_headers(rest, lkey)
+        _ -> find_in_headers(rest, lkey)
+
+// Extract the Bearer token from the Authorization header, if present.
+pub fun bearer_token(req: request) : maybe<string>
+  match req_header(req, "authorization")
+    Nothing -> Nothing
+    Just(v) ->
+      if v.starts-with("Bearer ").bool
+        then Just(str_slice(v, 7, v.count))
+        else Nothing
+
+// ---------------------------------------------------------------------------
+// Dispatch: match a raw server_request against a list of routes
+// ---------------------------------------------------------------------------
+
+pub fun dispatch_routes(sreq: server_request, routes: list<route>) : io route_response
+  val qparams = parse_query_params(sreq.query)
+  dispatch_loop(sreq, qparams, routes)
+
+fun dispatch_loop(sreq: server_request, qparams: list<(string, string)>, routes: list<route>) : io route_response
+  match routes
+    [] ->
+      Route_response(404, "Content-Type: text/plain", "Not Found")
+    Cons(r, rest) ->
+      val method_ok = r.method == "*" || to-lower(r.method) == to-lower(sreq.method)
+      if !method_ok then dispatch_loop(sreq, qparams, rest)
+      else
+        match match_path(r.pattern, sreq.path)
+          Nothing ->
+            dispatch_loop(sreq, qparams, rest)
+          Just(params) ->
+            val req = Request(sreq.method, sreq.path, params, qparams, sreq.headers, sreq.body)
+            (r.handler_fn)(req)
+
+// ---------------------------------------------------------------------------
+// Integer parsing (hand-rolled to avoid stdlib version uncertainty)
+// ---------------------------------------------------------------------------
+
+fun parse_int_str(s: string) : div int
+  match parse_int_str_maybe(s)
+    Nothing -> 0
+    Just(n) -> n
+
+fun parse_int_str_maybe(s: string) : div maybe<int>
+  if s == "" then Nothing
+  else if str_slice(s, 0, 1) == "-"
+    then match parse_digits(s, 1, 0)
+           Nothing -> Nothing
+           Just(n) -> Just(0 - n)
+    else parse_digits(s, 0, 0)
+
+fun parse_digits(s: string, idx: int, acc: int) : div maybe<int>
+  if idx >= s.count then Just(acc)
+  else
+    match str_slice(s, idx, idx + 1)
+      "0" -> parse_digits(s, idx + 1, acc * 10 + 0)
+      "1" -> parse_digits(s, idx + 1, acc * 10 + 1)
+      "2" -> parse_digits(s, idx + 1, acc * 10 + 2)
+      "3" -> parse_digits(s, idx + 1, acc * 10 + 3)
+      "4" -> parse_digits(s, idx + 1, acc * 10 + 4)
+      "5" -> parse_digits(s, idx + 1, acc * 10 + 5)
+      "6" -> parse_digits(s, idx + 1, acc * 10 + 6)
+      "7" -> parse_digits(s, idx + 1, acc * 10 + 7)
+      "8" -> parse_digits(s, idx + 1, acc * 10 + 8)
+      "9" -> parse_digits(s, idx + 1, acc * 10 + 9)
+      _   -> Nothing

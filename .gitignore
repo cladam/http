@@ -11,6 +11,7 @@ src/*
 !src/http.kk
 !src/http-inline.c
 !src/http_server_*.*
+!src/router_impl.kk
 
 tests/*
 !tests/*.hc

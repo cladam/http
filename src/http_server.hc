@@ -57,6 +57,14 @@ pub fun status_response(status: int, body: string) : ServerResponse {
   ServerResponse { status: status, headers: "Content-Type: text/plain", body: body }
 }
 
+// --- Response field accessors ---
+// Typed accessors so callers in other modules (e.g. router) can read fields
+// off a ServerResponse without the field name colliding with other record
+// types that share `status`/`headers`/`body` (e.g. router_impl/route_response).
+pub fun response_status(r: ServerResponse) : int { r.status }
+pub fun response_headers(r: ServerResponse) : string { r.headers }
+pub fun response_body(r: ServerResponse) : string { r.body }
+
 // --- Server loop ---
 
 // Start serving on port, calling handler for each request.
