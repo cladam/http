@@ -43,11 +43,9 @@ fun encode_item(it: Item) : Json =>
     ("in_stock", jbool(it.in_stock))
   ])
 
-fun handle_create(req) : ServerResponse {
-  match decode_body(req, decode_item) {
-    Ok(item) => created_json(encode_item(item)),   // 201 Created
-    Err(msg) => unprocessable(msg)                  // 422 with {"detail": ...}
-  }
+fun handle_create(req) {
+  with_body(req, decode_item, (item) =>
+    created_json(encode_item(item)))   // 201 on success, 422 on a bad body
 }
 
 // Return a collection: encode each item and wrap in a JSON array.

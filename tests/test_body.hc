@@ -143,6 +143,35 @@ test "decode_body propagates a decoder error" {
 }
 
 // ============================================================
+// with_body (typed round-trip)
+// ============================================================
+
+test "with_body hands a valid body to the handler" {
+  let req = build_request("POST", "/", "/", "", "", "\{\"name\": \"ada\"\}")
+  let resp = with_body(req, decode_person, (p) => ok_json(jobj([("name", jstr(p.name))])))
+  assert(response_status(resp) == 200)
+  assert(response_body(resp) == "\{\"name\": \"ada\"\}")
+}
+
+test "with_body returns 422 on a decode error" {
+  let req = build_request("POST", "/", "/", "", "", "\{\}")
+  let resp = with_body(req, decode_person, (p) => ok_json(jobj([("name", jstr(p.name))])))
+  assert(response_status(resp) == 422)
+}
+
+test "with_body returns 422 on invalid JSON" {
+  let req = build_request("POST", "/", "/", "", "", "not json")
+  let resp = with_body(req, decode_person, (p) => ok_json(jobj([("name", jstr(p.name))])))
+  assert(response_status(resp) == 422)
+}
+
+test "with_body lets the handler choose the status" {
+  let req = build_request("POST", "/", "/", "", "", "\{\"name\": \"ada\"\}")
+  let resp = with_body(req, decode_person, (p) => created_json(jobj([("name", jstr(p.name))])))
+  assert(response_status(resp) == 201)
+}
+
+// ============================================================
 // Result combinators
 // ============================================================
 

@@ -439,11 +439,11 @@ fun encode_item(it: Item) : Json =>
     ("in_stock", jbool(it.in_stock))
   ])
 
-fun handle_create(req) : ServerResponse {
-  match decode_body(req, decode_item) {
-    Ok(item) => created_json(encode_item(item)),   // 201 Created
-    Err(msg) => unprocessable(msg)                  // 422 with {"detail": ...}
-  }
+fun handle_create(req) {
+  // with_body decodes-or-422s, then hands you the typed value — the round
+  // trip of Ktor's call.receive<T>() + call.respond(obj).
+  with_body(req, decode_item, (item) =>
+    created_json(encode_item(item)))   // 201 on success, 422 on a bad body
 }
 ```
 
@@ -472,6 +472,7 @@ correct, and `Err` when present but the wrong type:
 
 | Function | Description |
 |---|---|
+| `with_body(req, decoder, handler)` | Decode the body; call `handler` with the typed value, or return `422` on a bad body. The typed round-trip |
 | `decode_body(req, decoder)` | Parse the request body as JSON, then run `decoder`. `Err` on malformed JSON or a decode failure |
 | `unprocessable(msg)` | `422 Unprocessable Entity` with a `{"detail": msg}` JSON body |
 

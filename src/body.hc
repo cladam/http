@@ -153,6 +153,31 @@ pub fun unprocessable(msg: string) : ServerResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Typed round-trip
+//
+// with_body ties the decode and respond sides together, the way Ktor's
+// call.receive<T>() + call.respond(obj) do: it parses and decodes the request
+// body, and on success hands the typed value to your handler. A malformed body
+// or a decode error becomes a 422 automatically, so the handler only ever sees
+// a valid value.
+//
+//   post("/items", (req) => with_body(req, decode_item, (item) =>
+//     created_json(encode_item(item))))
+//
+// The handler returns a ServerResponse, so it stays in full control of the
+// status and body (200/201, a Location header, a negotiated representation …).
+// ---------------------------------------------------------------------------
+
+// Decode the request body with `decoder`; on success call `handler` with the
+// typed value, otherwise return 422 with the decode error.
+pub fun with_body(req, decoder, handler) {
+  match decode_body(req, decoder) {
+    Ok(value) => handler(value),
+    Err(msg)  => unprocessable(msg)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // JSON value constructors (terse aliases for building response bodies)
 //
 // These wrap the json library's Json constructors with short names so an
