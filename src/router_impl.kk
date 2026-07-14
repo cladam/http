@@ -177,6 +177,19 @@ pub fun path_str(req: request, key: string) : string
 pub fun path_int(req: request, key: string) : int
   parse_int_str(path_str(req, key))
 
+// Path parameter as maybe<string>. Nothing if the parameter is absent.
+// Use this (rather than path_str) when you need to distinguish a missing
+// parameter from an empty capture and return, say, a 400.
+pub fun path_str_opt(req: request, key: string) : maybe<string>
+  lookup_kv(req.path_params, key)
+
+// Path parameter as maybe<int>. Nothing if the parameter is absent or does
+// not parse as an integer — so you can tell a genuine 0 from bad/missing input.
+pub fun path_int_opt(req: request, key: string) : maybe<int>
+  match lookup_kv(req.path_params, key)
+    Nothing -> Nothing
+    Just(v) -> parse_int_str_maybe(v)
+
 // Query parameter as maybe<string>.
 pub fun query_str(req: request, key: string) : maybe<string>
   lookup_kv(req.query_params, key)

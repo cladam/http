@@ -88,6 +88,50 @@ test "path_int returns 0 for non-numeric input" {
 }
 
 // ============================================================
+// Optional path parameter extraction
+// ============================================================
+
+test "path_str_opt returns Some when present" {
+  let req = build_request("GET", "/items/\{id\}", "/items/42", "", "", "")
+  match path_str_opt(req, "id") {
+    Some(v) => assert(v == "42"),
+    None    => assert(false)
+  }
+}
+
+test "path_str_opt returns None when absent" {
+  let req = build_request("GET", "/items", "/items", "", "", "")
+  match path_str_opt(req, "id") {
+    Some(_) => assert(false),
+    None    => assert(true)
+  }
+}
+
+test "path_int_opt parses a present value" {
+  let req = build_request("GET", "/items/\{id\}", "/items/99", "", "", "")
+  match path_int_opt(req, "id") {
+    Some(v) => assert(v == 99),
+    None    => assert(false)
+  }
+}
+
+test "path_int_opt returns None when absent" {
+  let req = build_request("GET", "/items", "/items", "", "", "")
+  match path_int_opt(req, "id") {
+    Some(_) => assert(false),
+    None    => assert(true)
+  }
+}
+
+test "path_int_opt returns None for non-numeric input" {
+  let req = build_request("GET", "/t/\{n\}", "/t/abc", "", "", "")
+  match path_int_opt(req, "n") {
+    Some(_) => assert(false),
+    None    => assert(true)
+  }
+}
+
+// ============================================================
 // Query parameter extraction
 // ============================================================
 

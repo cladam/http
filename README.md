@@ -234,6 +234,8 @@ Each handler receives a `request`. Read from it with these helpers (all take
 |---|---|---|
 | `path_str(req, key)` | `string` | Path parameter (`""` if absent) |
 | `path_int(req, key)` | `int` | Path parameter as int (`0` if absent/non-numeric) |
+| `path_str_opt(req, key)` | `maybe<string>` | Path parameter (`None` if absent) |
+| `path_int_opt(req, key)` | `maybe<int>` | Path parameter as int (`None` if absent/non-numeric) |
 | `query_str(req, key)` | `maybe<string>` | Query parameter |
 | `query_int(req, key)` | `maybe<int>` | Query parameter as int |
 | `query_bool(req, key)` | `maybe<bool>` | Query parameter (`true`/`1`, `false`/`0`) |

@@ -24,6 +24,8 @@
 // Available request helpers (all take `req` as first arg):
 //   path_str(req, "key")    -> string        (path param, "" if absent)
 //   path_int(req, "id")     -> int           (path param, 0 if absent)
+//   path_str_opt(req, "key")-> maybe<string> (path param, None if absent)
+//   path_int_opt(req, "id") -> maybe<int>    (path param, None if absent/bad)
 //   query_str(req, "q")     -> maybe<string>
 //   query_int(req, "page")  -> maybe<int>
 //   query_bool(req, "flag") -> maybe<bool>
