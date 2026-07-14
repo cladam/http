@@ -121,21 +121,27 @@ pub fun match_param(pattern: string, path: string, key: string) : maybe<string>
 
 // Structural recursion on `pat` (its tail `ps` is strictly smaller) keeps this
 // total — no `div` effect, so it never leaks divergence into user handlers.
+// A pattern segment of "*" is a trailing wildcard: it captures the entire
+// remaining path (joined with "/") under the key "*", so "/static/*" matches
+// "/static/css/app.css" with "*" -> "css/app.css".
 fun match_parts(pat: list<string>, path: list<string>, acc: list<(string, string)>) : maybe<list<(string, string)>>
   match pat
     [] -> match path
       [] -> Just(reverse(acc))
       _  -> Nothing
-    Cons(p, ps) -> match path
-      [] -> Nothing
-      Cons(v, vs) ->
-        if p.starts-with("{").bool && p.ends-with("}").bool
-          then
-            val name = str_slice(p, 1, p.count - 1)
-            match_parts(ps, vs, [(name, v)] ++ acc)
-          else if p == v
-            then match_parts(ps, vs, acc)
-            else Nothing
+    Cons(p, ps) ->
+      if p == "*"
+        then Just(reverse([("*", join(path, "/"))] ++ acc))
+        else match path
+          [] -> Nothing
+          Cons(v, vs) ->
+            if p.starts-with("{").bool && p.ends-with("}").bool
+              then
+                val name = str_slice(p, 1, p.count - 1)
+                match_parts(ps, vs, [(name, v)] ++ acc)
+              else if p == v
+                then match_parts(ps, vs, acc)
+                else Nothing
 
 // ---------------------------------------------------------------------------
 // Query string parsing: "k=v&k2=v2" -> [("k","v"),("k2","v2")]

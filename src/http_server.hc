@@ -71,6 +71,11 @@ pub fun json_status(status: int, body: string) : ServerResponse {
   ServerResponse { status: status, headers: "Content-Type: application/json", body: body }
 }
 
+// Custom status with an explicit Content-Type.
+pub fun content_response(status: int, content_type: string, body: string) : ServerResponse {
+  ServerResponse { status: status, headers: "Content-Type: " + content_type, body: body }
+}
+
 // --- Response field accessors ---
 // Typed accessors so callers in other modules (e.g. router) can read fields
 // off a ServerResponse without the field name colliding with other record

@@ -467,6 +467,43 @@ test "a missing route is a 404" {
 | `test_request(routes, method, path, headers, body)` | Full control, including raw request headers |
 | `test_request_mw(routes, middlewares, method, path, headers, body)` | Dispatch through the middleware chain too |
 
+## Serving static files
+
+`static.hc` serves files from a directory. Mount it on a route with a trailing
+`*` wildcard, which captures the rest of the path:
+
+```rust
+import "../src/static"
+
+// A named handler that serves files from ./public via the "*" capture.
+fun assets(req) => serve_file_from(req, "./public")
+
+fun main() {
+  serve_routes(8080, [
+    get("/",         (req) => html_response("<h1>Home</h1>")),
+    get("/static/*", assets)
+  ])
+}
+```
+
+A request for `/static/css/app.css` reads `./public/css/app.css`. The
+`Content-Type` is chosen from the file extension; an empty capture serves
+`index.html`; a missing file is a `404`; and any attempt to escape the directory
+(a `..` segment or an absolute path) is a `403`.
+
+| Function | Description |
+|---|---|
+| `serve_file_from(req, dir)` | Serve the `*`-captured path from under `dir` (403 unsafe / 404 missing) |
+| `content_type_for(path)` | Content-Type for a file extension |
+| `is_safe_rel(rel)` | False if `rel` escapes the directory (`..` or absolute) |
+
+The `*` wildcard is a general router feature — a `"/prefix/*"` pattern matches
+any remaining path and captures it under `path_str(req, "*")`.
+
+> **Notes:** `serve_file_from` must be wrapped in a **named** handler (a returned
+> closure that reads the filesystem does not currently type-check in hica). Files
+> are read as UTF-8 text, so binary assets like images are not yet supported.
+
 ## License
 
 MIT

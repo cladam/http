@@ -54,6 +54,12 @@ test "an absent query parameter uses the default" {
   assert(route_response_body(r) == "none")
 }
 
+test "a wildcard route matches a multi-segment path" {
+  let routes = [ get("/assets/*", (req) => text_response(path_str(req, "*"))) ]
+  let r = test_get(routes, "/assets/css/app.css")
+  assert(route_response_body(r) == "css/app.css")
+}
+
 // ============================================================
 // Bodies and methods
 // ============================================================

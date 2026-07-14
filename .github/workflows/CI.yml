@@ -127,6 +127,14 @@ jobs:
           hica build examples/server_middleware.hc -o http_middleware_example
           echo "middleware example built (router + middleware + libmicrohttpd) OK"
 
+      - name: Build static-files example (router + static + libmicrohttpd)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          hica build examples/server_static.hc -o http_static_example
+          echo "static-files example built (router + static + libmicrohttpd) OK"
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
