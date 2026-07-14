@@ -66,6 +66,45 @@ pub fun status_response(status: int, body: string) : ServerResponse {
   ServerResponse { status: status, headers: "Content-Type: text/plain", body: body }
 }
 
+// --- Redirects ---
+
+// 302 Found — a temporary redirect to `url`.
+pub fun redirect(url: string) : ServerResponse {
+  ServerResponse { status: 302, headers: "Location: " + url, body: "" }
+}
+
+// 301 Moved Permanently — a permanent redirect to `url`.
+pub fun redirect_permanent(url: string) : ServerResponse {
+  ServerResponse { status: 301, headers: "Location: " + url, body: "" }
+}
+
+// --- Common status responses ---
+
+// 202 Accepted with a plain-text body.
+pub fun accepted(body: string) : ServerResponse {
+  ServerResponse { status: 202, headers: "Content-Type: text/plain", body: body }
+}
+
+// 204 No Content — an empty successful response.
+pub fun no_content() : ServerResponse {
+  ServerResponse { status: 204, headers: "", body: "" }
+}
+
+// 400 Bad Request with a plain-text message.
+pub fun bad_request(msg: string) : ServerResponse {
+  ServerResponse { status: 400, headers: "Content-Type: text/plain", body: msg }
+}
+
+// 401 Unauthorized with a plain-text message.
+pub fun unauthorized(msg: string) : ServerResponse {
+  ServerResponse { status: 401, headers: "Content-Type: text/plain", body: msg }
+}
+
+// 403 Forbidden with a plain-text message.
+pub fun forbidden(msg: string) : ServerResponse {
+  ServerResponse { status: 403, headers: "Content-Type: text/plain", body: msg }
+}
+
 // Custom status with application/json body
 pub fun json_status(status: int, body: string) : ServerResponse {
   ServerResponse { status: status, headers: "Content-Type: application/json", body: body }

@@ -171,6 +171,11 @@ all socket I/O and holds concurrent connections open; requests are handed to
 your handler **one at a time** for sequential processing (the Koka runtime is
 single-threaded). This is well suited to I/O-bound services and tooling.
 
+> **Tip:** `web.hc` is a convenience barrel — `import "web"` re-exports the
+> router, middleware, and static-file modules (and the response helpers) so a
+> typical app needs a single import. Add `import "body"` too for typed
+> request/response bodies (it is separate because it pulls in the json library).
+
 ### Router (recommended)
 
 `router.hc` provides a FastAPI-style typed router: declare routes with
@@ -252,6 +257,13 @@ Each handler receives a `request`. Read from it with these helpers (all take
 | `error_response(msg)` | `500` with the message |
 | `status_response(status, body)` | Custom status with a plain-text body |
 | `content_response(status, content_type, body)` | Custom status with an explicit `Content-Type` |
+| `redirect(url)` | `302 Found` to `url` |
+| `redirect_permanent(url)` | `301 Moved Permanently` to `url` |
+| `accepted(body)` | `202 Accepted` |
+| `no_content()` | `204 No Content` |
+| `bad_request(msg)` | `400 Bad Request` |
+| `unauthorized(msg)` | `401 Unauthorized` |
+| `forbidden(msg)` | `403 Forbidden` |
 | `with_header(resp, name, value)` | Append a header to a response |
 | `set_cookie(resp, name, value)` | Add a `Set-Cookie` header (`Path=/`) |
 
