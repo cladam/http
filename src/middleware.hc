@@ -19,8 +19,8 @@
 //   }
 
 extern import "router_impl"
+extern import "http_server_impl"
 pub import "./router"
-
 // ---------------------------------------------------------------------------
 // Response builders for middleware short-circuits (produce route_response)
 // ---------------------------------------------------------------------------
@@ -46,11 +46,23 @@ pub fun route_with_header(resp, name, value) {
 // Built-in middleware
 // ---------------------------------------------------------------------------
 
-// Log "METHOD /path" for every request, then continue.
+// Format an access-log line, e.g. "GET /items 200 3ms". Pure, so it is unit
+// tested directly; the logger middleware wraps it with the clock and println.
+pub fun access_log_line(method: string, path: string, status: int, ms: int) : string {
+  method + " " + path + " " + show(status) + " " + show(ms) + "ms"
+}
+
+// Log an access line "METHOD /path STATUS Nms" after each request completes,
+// timing the downstream handler with a monotonic clock. Common-log style: one
+// line per request, emitted once the response status is known.
 pub fun logger() {
   (req, next) => {
-    println(req_method(req) + " " + req_path(req))
-    next(req)
+    let start = http_now_millis()
+    let resp = next(req)
+    let ms = http_now_millis() - start
+    println(access_log_line(req_method(req), req_path(req), route_response_status(resp), ms))
+    http_flush_stdout()
+    resp
   }
 }
 

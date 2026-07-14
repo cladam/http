@@ -44,6 +44,18 @@ test "route_add_header on empty headers omits the separator" {
 }
 
 // ============================================================
+// access_log_line
+// ============================================================
+
+test "access_log_line formats method path status and latency" {
+  assert(access_log_line("GET", "/items", 200, 3) == "GET /items 200 3ms")
+}
+
+test "access_log_line handles a zero-millisecond request" {
+  assert(access_log_line("POST", "/login", 401, 0) == "POST /login 401 0ms")
+}
+
+// ============================================================
 // cors
 // ============================================================
 

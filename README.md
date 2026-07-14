@@ -316,7 +316,7 @@ fun main() {
 
 | Function | Description |
 |---|---|
-| `logger()` | Log `"METHOD /path"` for each request, then continue |
+| `logger()` | Log an access line `"METHOD /path STATUS Nms"` after each request (status + latency), flushed so file-redirected logs stay current |
 | `cors(origin)` | Add `Access-Control-Allow-Origin` to responses; answer `OPTIONS` preflight with `204` |
 | `require_bearer(token)` | `401` if the `Authorization` header is absent, `403` if the token mismatches, else continue |
 

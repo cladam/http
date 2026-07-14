@@ -2,7 +2,7 @@
 //
 // Demonstrates the Starlette-style middleware chain wrapped around the router,
 // using the batteries-included middleware from src/middleware.hc:
-//   - logger()          logs "METHOD /path" for every request
+//   - logger()          logs "METHOD /path STATUS Nms" after each request
 //   - cors("*")         adds CORS headers + answers OPTIONS preflight with 204
 //   - require_bearer(t) gates every route behind a Bearer token
 //

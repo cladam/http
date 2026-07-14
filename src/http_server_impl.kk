@@ -57,6 +57,12 @@ extern http_req_headers_raw( req : int ) : io string
 extern http_req_body_raw( req : int ) : io string
   c "kk_http_req_body"
 
+extern http_now_millis_raw() : io int
+  c "kk_http_now_millis"
+
+extern http_flush_stdout_raw() : io ()
+  c "kk_http_flush_stdout"
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -73,6 +79,15 @@ pub fun http_server_run( port : int, on_request : req_handler ) : io ()
 // Called from inside a handler; libmicrohttpd sends it once the handler returns.
 pub fun http_set_response( node : int, status : int, headers : string, body : string ) : io ()
   http_set_response_raw(node, status, headers, body)
+
+// Monotonic clock in milliseconds (for measuring request latency).
+pub fun http_now_millis() : io int
+  http_now_millis_raw()
+
+// Flush stdout — Koka block-buffers stdout when it is not a TTY, so the access
+// logger calls this after each line to keep file-redirected logs current.
+pub fun http_flush_stdout() : io ()
+  http_flush_stdout_raw()
 
 // Build a server_request value from a request node id (used inside a handler).
 pub fun request_from_id( node : int ) : io server_request

@@ -31,6 +31,7 @@
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/time.h>
+#include <time.h>
 
 /* ------------------------------------------------------------------ */
 /* Growing string buffer                                               */
@@ -442,4 +443,21 @@ static kk_string_t kk_http_req_body(kk_integer_t req_int, kk_context_t* ctx) {
   kk_integer_drop(req_int, ctx);
   if (!n || !n->body) return kk_string_alloc_from_utf8n(0, "", ctx);
   return kk_string_alloc_from_utf8n((kk_ssize_t)n->body_size, n->body, ctx);
+}
+
+/* Monotonic clock in milliseconds — used for request-latency logging.
+   CLOCK_MONOTONIC is unaffected by wall-clock adjustments, so a difference of
+   two readings is a robust elapsed time. */
+static kk_integer_t kk_http_now_millis(kk_context_t* ctx) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  int64_t ms = (int64_t)ts.tv_sec * 1000 + (int64_t)(ts.tv_nsec / 1000000);
+  return kk_integer_from_int((kk_intx_t)ms, ctx);
+}
+
+/* Flush stdout — Koka block-buffers stdout when it is not a TTY (e.g. logs
+   redirected to a file), so the access logger flushes after each line. */
+static kk_unit_t kk_http_flush_stdout(kk_context_t* ctx) {
+  fflush(stdout);
+  return kk_Unit;
 }
