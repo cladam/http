@@ -172,9 +172,10 @@ your handler **one at a time** for sequential processing (the Koka runtime is
 single-threaded). This is well suited to I/O-bound services and tooling.
 
 > **Tip:** `web.hc` is a convenience barrel — `import "web"` re-exports the
-> router, middleware, and static-file modules (and the response helpers) so a
-> typical app needs a single import. Add `import "body"` too for typed
-> request/response bodies (it is separate because it pulls in the json library).
+> router, middleware, static-file, and content-negotiation modules (and the
+> response helpers) so a typical app needs a single import. Add `import "body"`
+> too for typed request/response bodies (it is separate because it pulls in the
+> json library).
 
 ### Router (recommended)
 
@@ -262,6 +263,7 @@ Each handler receives a `request`. Read from it with these helpers (all take
 | `form_str(req, key)` | `maybe<string>` | Field from a urlencoded form body |
 | `form_int(req, key)` | `maybe<int>` | Form field as int |
 | `cookie(req, key)` | `maybe<string>` | Value from the `Cookie` request header |
+| `accepts(req, mime)` | `bool` | Does the client's `Accept` header allow `mime`? |
 
 #### Response constructors
 
@@ -346,7 +348,7 @@ fun request_timer() {
 If a handler raises an exception (a bad list index, an `unwrap` of an `Err`, a
 division by zero, an explicit `throw`, ...) the server catches it and returns a
 plain `500 Internal Server Error`, keeping the event loop healthy. To decide the
-response yourself — like Ktor's `StatusPages` `exception<T> { ... }` — use the
+response yourself (like Ktor's `StatusPages` `exception<T> { ... }`) use the
 `_with_errors` variants and pass an `on_error` callback. It receives the caught
 exception message and returns a `ServerResponse`:
 
@@ -370,11 +372,43 @@ Unmatched routes still return `404`. See [`examples/server_errors.hc`](examples/
 | `serve_routes_with_errors(port, routes, on_error)` | Like `serve_routes`, but a caught exception's message is passed to `on_error`, which returns the response. Never returns |
 | `serve_routes_mw_with_errors(port, routes, middlewares, on_error)` | `serve_routes_mw` with a custom error handler. Never returns |
 
+### Content negotiation
+
+`negotiation.hc` offers several representations of a resource and lets the
+client's `Accept` header choose — like Ktor's `ContentNegotiation` /
+`call.respond(obj)`. Ranges (`type/*`, `*/*`) and quality values (`;q=0.8`) are
+honoured, and a more specific range wins over a less specific one, so a browser
+is served HTML while an API client (or curl's default `*/*`) is served JSON —
+even when JSON is offered first:
+
+```rust
+import "negotiation"
+
+fun handle_item(req) : ServerResponse {
+  negotiate(req, [
+    ("application/json",         "\{\"name\": \"Widget\"\}"),
+    ("text/html; charset=utf-8", "<h1>Widget</h1>")
+  ])
+}
+```
+
+`negotiate` returns a `200` with the chosen `Content-Type` and a `Vary: Accept`
+header, or `406 Not Acceptable` when the client accepts none of the offers. See
+[`examples/server_negotiation.hc`](examples/server_negotiation.hc).
+
+| Function | Description |
+|---|---|
+| `negotiate(req, offers)` | Pick a representation from `[(content_type, body), ...]` by the `Accept` header; `406` if none match |
+| `accepts(req, mime)` | `true` if the client's `Accept` header allows `mime` |
+| `accepts_json(req)` | Shorthand for `accepts(req, "application/json")` |
+| `accepts_html(req)` | Shorthand for `accepts(req, "text/html")` |
+| `not_acceptable()` | `406 Not Acceptable` response |
+
 ### Typed request bodies
 
 `body.hc` decodes a JSON request body into your own struct with validation,
 returning **422 Unprocessable Entity** (as FastAPI does) on malformed or invalid
-input. It is an opt-in module — importing it pulls in the [json](https://github.com/cladam/json)
+input. It is an opt-in module, importing it pulls in the [json](https://github.com/cladam/json)
 library, and re-exports the `Json` type and `json_emit` so you can build responses too.
 
 ```rust

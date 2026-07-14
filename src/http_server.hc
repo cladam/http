@@ -105,6 +105,12 @@ pub fun forbidden(msg: string) : ServerResponse {
   ServerResponse { status: 403, headers: "Content-Type: text/plain", body: msg }
 }
 
+// 406 Not Acceptable — the client's Accept header matched none of the offered
+// representations (used by content negotiation).
+pub fun not_acceptable() : ServerResponse {
+  ServerResponse { status: 406, headers: "Content-Type: text/plain", body: "Not Acceptable" }
+}
+
 // Custom status with application/json body
 pub fun json_status(status: int, body: string) : ServerResponse {
   ServerResponse { status: status, headers: "Content-Type: application/json", body: body }

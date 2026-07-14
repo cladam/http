@@ -295,6 +295,102 @@ pub fun cookie(req: request, key: string) : maybe<string>
     Just(h) -> lookup_kv(parse_cookies(h), key)
 
 // ---------------------------------------------------------------------------
+// Content negotiation (the Accept request header)
+//
+// Server-driven negotiation: the app offers a set of media types and the
+// client's Accept header decides which one to send. Ranges (`type/*`, `*/*`)
+// and quality values (`;q=0.8`) are honoured, and a more specific range wins
+// over a less specific one — so a browser sending
+//   Accept: text/html, application/xhtml+xml, */*;q=0.8
+// is served HTML rather than JSON even when JSON is offered first.
+// ---------------------------------------------------------------------------
+
+// The raw Accept header, or "*/*" when the client sent none.
+pub fun accept_header(req: request) : string
+  match req_header(req, "accept")
+    Just(v) -> v
+    Nothing -> "*/*"
+
+// Reduce "type/sub; charset=..." to a bare, lowercased "type/sub".
+fun media_type(s: string) : string
+  match split(s, ";")
+    Cons(h, _) -> to-lower(trim(h))
+    []         -> to-lower(trim(s))
+
+// Parse a q-value ("0.8", "1", "1.0") into thousandths (0..1000). Avoids
+// stdlib float parsing; only relative ordering matters here.
+fun parse_q_milli(s: string) : int
+  match split(trim(s), ".")
+    []              -> 1000
+    Cons(whole, []) -> parse_int_str(whole) * 1000
+    Cons(whole, Cons(frac, _)) ->
+      val f3 = (frac ++ "000").list.take(3).string
+      parse_int_str(whole) * 1000 + parse_int_str(f3)
+
+// The q of a single "; q=..." parameter list; defaults to 1000 when absent.
+fun params_q(params: list<string>) : int
+  match params
+    [] -> 1000
+    Cons(p, rest) ->
+      val t = to-lower(trim(p))
+      if t.starts-with("q=").is-just
+        then parse_q_milli(t.list.drop(2).string)
+        else params_q(rest)
+
+// Parse one Accept entry ("text/html;q=0.9") into (media-range, q-milli).
+fun parse_accept_entry(entry: string) : (string, int)
+  match split(entry, ";")
+    []              -> ("*/*", 1000)
+    Cons(r, params) -> (to-lower(trim(r)), params_q(params))
+
+// Parse the whole Accept header into a list of (media-range, q-milli).
+fun parse_accept(req: request) : list<(string, int)>
+  map(split(accept_header(req), ","), parse_accept_entry)
+
+// How specifically `range` matches the concrete media type `om`
+// (3 = exact, 2 = type/*, 1 = */*, 0 = no match).
+fun match_spec(range: string, om: string) : int
+  if range == om then 3
+  elif range == "*/*" then 1
+  elif range.ends-with("/*").is-just then
+    val pfx = range.list.take(range.count - 1).string   // "text/*" -> "text/"
+    if om.starts-with(pfx).is-just then 2 else 0
+  else 0
+
+// The q (thousandths) the client assigns to media type `om`, using the most
+// specific matching range; -1 when unacceptable (no match, or q=0).
+fun offer_q_loop(ranges: list<(string, int)>, om: string, best_spec: int, best_q: int) : int
+  match ranges
+    [] -> if best_spec == 0 || best_q == 0 then -1 else best_q
+    Cons((range, q), rest) ->
+      val spec = match_spec(range, om)
+      if spec > 0 && (spec > best_spec || (spec == best_spec && q > best_q))
+        then offer_q_loop(rest, om, spec, q)
+        else offer_q_loop(rest, om, best_spec, best_q)
+
+fun offer_q(ranges: list<(string, int)>, om: string) : int
+  offer_q_loop(ranges, om, 0, 0)
+
+// True when the client will accept `mime` (honouring ranges and q-values).
+pub fun accepts(req: request, mime: string) : bool
+  offer_q(parse_accept(req), media_type(mime)) > 0
+
+// Choose the best media type for the client from `offers` (the server's
+// preferred order breaks ties). Returns the winning offer string unchanged, or
+// Nothing when the client accepts none of them (a 406 situation).
+fun pick_offer(offers: list<string>, ranges: list<(string, int)>, best: maybe<string>, best_q: int) : maybe<string>
+  match offers
+    [] -> best
+    Cons(o, rest) ->
+      val q = offer_q(ranges, media_type(o))
+      if q > best_q
+        then pick_offer(rest, ranges, Just(o), q)
+        else pick_offer(rest, ranges, best, best_q)
+
+pub fun best_offer(req: request, offers: list<string>) : maybe<string>
+  pick_offer(offers, parse_accept(req), Nothing, -1)
+
+// ---------------------------------------------------------------------------
 // Raw field accessors — Hica callers cannot read fields off an extern Koka
 // struct directly (req.body generates an unknown accessor), so expose these.
 // Named req_* to match req_header and to avoid colliding with
