@@ -38,11 +38,19 @@ test "field_str errors when the field is missing" {
   }
 }
 
-test "field_int reads and rounds a number" {
+test "field_int reads an integral number" {
   let doc = unwrap(parse_json("\{\"n\": 7\}"))
   match field_int(doc, "n") {
     Ok(v)  => assert(v == 7),
     Err(_) => assert(false)
+  }
+}
+
+test "field_int rejects a non-integral number" {
+  let doc = unwrap(parse_json("\{\"n\": 7.5\}"))
+  match field_int(doc, "n") {
+    Ok(_)  => assert(false),
+    Err(_) => assert(true)
   }
 }
 
@@ -127,10 +135,46 @@ test "decode_body propagates a decoder error" {
 }
 
 // ============================================================
+// Result combinators
+// ============================================================
+
+test "res_and_then chains on Ok" {
+  let doc = unwrap(parse_json("\{\"name\": \"x\"\}"))
+  let r = field_str(doc, "name") |> res_and_then((v) => Ok(Person { name: v }))
+  match r {
+    Ok(p)  => assert(p.name == "x"),
+    Err(_) => assert(false)
+  }
+}
+
+test "res_and_then short-circuits on Err" {
+  let doc = unwrap(parse_json("\{\}"))
+  let r = field_str(doc, "name") |> res_and_then((v) => Ok(Person { name: v }))
+  match r {
+    Ok(_)  => assert(false),
+    Err(_) => assert(true)
+  }
+}
+
+test "res_map transforms the Ok value into a struct" {
+  let doc = unwrap(parse_json("\{\"name\": \"hi\"\}"))
+  let r = field_str(doc, "name") |> res_map((v) => Person { name: v })
+  match r {
+    Ok(p)  => assert(p.name == "hi"),
+    Err(_) => assert(false)
+  }
+}
+
+// ============================================================
 // 422 helper
 // ============================================================
 
 test "unprocessable returns a 422 response" {
   let r = unprocessable("bad")
   assert(response_status(r) == 422)
+}
+
+test "unprocessable emits a JSON detail body" {
+  let r = unprocessable("bad")
+  assert(response_body(r) == "\{\"detail\": \"bad\"\}")
 }

@@ -46,10 +46,13 @@ pub fun field_str(doc: Json, key: string) : result<string, string> => match json
   None             => Err("missing required field '" + key + "'")
 }
 
-// Required integer field (a JSON number, rounded to the nearest int).
+// Required integer field. JSON has no separate integer type, so we accept a
+// number only when it has no fractional part (1 or 1.0, but not 1.5) — matching
+// FastAPI/Pydantic, which reject non-integral values rather than rounding them.
 pub fun field_int(doc: Json, key: string) : result<int, string> => match json_get(doc, key) {
-  Some(JNumber(v)) => Ok(round(v)),
-  Some(_)          => Err("field '" + key + "' must be a number"),
+  Some(JNumber(v)) => if to_float(round(v)) == v { Ok(round(v)) }
+                      else { Err("field '" + key + "' must be an integer") },
+  Some(_)          => Err("field '" + key + "' must be an integer"),
   None             => Err("missing required field '" + key + "'")
 }
 
@@ -82,8 +85,9 @@ pub fun opt_str(doc: Json, key: string) : result<maybe<string>, string> => match
 
 pub fun opt_int(doc: Json, key: string) : result<maybe<int>, string> => match json_get(doc, key) {
   None             => Ok(None),
-  Some(JNumber(v)) => Ok(Some(round(v))),
-  Some(_)          => Err("field '" + key + "' must be a number")
+  Some(JNumber(v)) => if to_float(round(v)) == v { Ok(Some(round(v))) }
+                      else { Err("field '" + key + "' must be an integer") },
+  Some(_)          => Err("field '" + key + "' must be an integer")
 }
 
 pub fun opt_bool(doc: Json, key: string) : result<maybe<bool>, string> => match json_get(doc, key) {
@@ -106,10 +110,41 @@ pub fun decode_body(req, decoder) {
 }
 
 // ---------------------------------------------------------------------------
+// Result combinators
+//
+// Optional helpers for chaining field decoders without the nested-match
+// pyramid. Both thread the error through untouched, so the first failing
+// field wins. Because hica pipes the left operand in as the first argument,
+// they compose cleanly with `|>`:
+//
+//   fun decode_item(doc: Json) : result<Item, string> =>
+//     field_str(doc, "name") |> res_and_then((name) =>
+//     field_num(doc, "price") |> res_map((price) =>
+//       Item { name: name, price: price }))
+//
+// The nested-match form is still the recommended default for readability; reach
+// for these when a struct has many fields.
+// ---------------------------------------------------------------------------
+
+// Run `f` on the Ok value (itself returning a result), short-circuit on Err.
+pub fun res_and_then(r, f) => match r {
+  Ok(v)  => f(v),
+  Err(e) => Err(e)
+}
+
+// Map the Ok value, leaving Err untouched.
+pub fun res_map(r, f) => match r {
+  Ok(v)  => Ok(f(v)),
+  Err(e) => Err(e)
+}
+
+// ---------------------------------------------------------------------------
 // Responses
 // ---------------------------------------------------------------------------
 
 // 422 Unprocessable Entity — the FastAPI status for body validation errors.
+// Emits a JSON body `\{"detail": "..."\}` so JSON clients get a machine-readable
+// error rather than plain text.
 pub fun unprocessable(msg: string) : ServerResponse {
-  status_response(422, msg)
+  json_status(422, json_emit(JObject([("detail", JString(msg))])))
 }
