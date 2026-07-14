@@ -1,6 +1,6 @@
 @project {
     name: "http"
-    version: "1.0.0-beta"
+    version: "1.0.0"
     license: "MIT"
     entry: "src/main.hc"
 }
