@@ -135,6 +135,14 @@ jobs:
           hica build examples/server_static.hc -o http_static_example
           echo "static-files example built (router + static + libmicrohttpd) OK"
 
+      - name: Build forms example (form data + cookies + libmicrohttpd)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          hica build examples/server_forms.hc -o http_forms_example
+          echo "forms example built (form data + cookies + libmicrohttpd) OK"
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test

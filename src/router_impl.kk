@@ -198,12 +198,49 @@ pub fun query_bool(req: request, key: string) : maybe<bool>
     _             -> Nothing
 
 // ---------------------------------------------------------------------------
+// Form fields (application/x-www-form-urlencoded request bodies)
+//
+// The body has the same shape as a query string ("a=1&b=2"), so it is parsed
+// with the same code.
+// ---------------------------------------------------------------------------
+
+// Form field as maybe<string>, parsed from the urlencoded request body.
+pub fun form_str(req: request, key: string) : maybe<string>
+  lookup_kv(parse_query_params(req.body), key)
+
+// Form field as maybe<int>.
+pub fun form_int(req: request, key: string) : maybe<int>
+  match form_str(req, key)
+    Nothing -> Nothing
+    Just(v) -> parse_int_str_maybe(v)
+
+// ---------------------------------------------------------------------------
 // Header lookup (case-insensitive search in the raw header string)
 // ---------------------------------------------------------------------------
 
 // Find a request header by name. Returns maybe<string>.
 pub fun req_header(req: request, key: string) : maybe<string>
   find_in_headers(split(req.headers, "\n"), to-lower(key))
+
+// ---------------------------------------------------------------------------
+// Cookies (parsed from the Cookie request header: "a=1; b=2")
+// ---------------------------------------------------------------------------
+
+fun parse_cookie_pair(pair: string) : (string, string)
+  val t = trim(pair)
+  match split(t, "=")
+    []            -> (t, "")
+    Cons(k, rest) -> (trim(k), trim(join(rest, "=")))
+
+fun parse_cookies(header: string) : list<(string, string)>
+  if header == "" then []
+  else map(split(header, ";"), parse_cookie_pair)
+
+// Cookie value by name from the Cookie request header.
+pub fun cookie(req: request, key: string) : maybe<string>
+  match req_header(req, "cookie")
+    Nothing -> Nothing
+    Just(h) -> lookup_kv(parse_cookies(h), key)
 
 // ---------------------------------------------------------------------------
 // Raw field accessors — Hica callers cannot read fields off an extern Koka

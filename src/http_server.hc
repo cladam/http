@@ -76,6 +76,18 @@ pub fun content_response(status: int, content_type: string, body: string) : Serv
   ServerResponse { status: status, headers: "Content-Type: " + content_type, body: body }
 }
 
+// Append a header to a response, preserving existing headers.
+pub fun with_header(resp: ServerResponse, name: string, value: string) : ServerResponse {
+  let hdrs = response_headers(resp)
+  let sep = if hdrs == "" { "" } else { "\n" }
+  ServerResponse { status: response_status(resp), headers: hdrs + sep + name + ": " + value, body: response_body(resp) }
+}
+
+// Set a cookie on a response (Path=/ so it applies site-wide).
+pub fun set_cookie(resp: ServerResponse, name: string, value: string) : ServerResponse {
+  with_header(resp, "Set-Cookie", name + "=" + value + "; Path=/")
+}
+
 // --- Response field accessors ---
 // Typed accessors so callers in other modules (e.g. router) can read fields
 // off a ServerResponse without the field name colliding with other record

@@ -237,6 +237,9 @@ Each handler receives a `request`. Read from it with these helpers (all take
 | `req_method(req)` | `string` | Request method (`GET`, `POST`, ...) |
 | `req_path(req)` | `string` | Request path |
 | `req_body(req)` | `string` | Raw request body (parse with the json library) |
+| `form_str(req, key)` | `maybe<string>` | Field from a urlencoded form body |
+| `form_int(req, key)` | `maybe<int>` | Form field as int |
+| `cookie(req, key)` | `maybe<string>` | Value from the `Cookie` request header |
 
 #### Response constructors
 
@@ -248,6 +251,9 @@ Each handler receives a `request`. Read from it with these helpers (all take
 | `not_found_response()` | `404 Not Found` |
 | `error_response(msg)` | `500` with the message |
 | `status_response(status, body)` | Custom status with a plain-text body |
+| `content_response(status, content_type, body)` | Custom status with an explicit `Content-Type` |
+| `with_header(resp, name, value)` | Append a header to a response |
+| `set_cookie(resp, name, value)` | Add a `Set-Cookie` header (`Path=/`) |
 
 ### Middleware
 
