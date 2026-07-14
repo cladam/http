@@ -428,6 +428,42 @@ See [`examples/server.hc`](examples/server.hc) for the low-level API and
 [`examples/server_router.hc`](examples/server_router.hc) for the router with
 JSON request/response handling.
 
+## Testing your app
+
+`testclient.hc` dispatches requests straight through your routes without opening
+a socket, so you can unit-test an app with `hica test` — no running server, no
+ports. Every helper returns a `route_response`; read it with
+`route_response_status`, `route_response_headers`, and `route_response_body`.
+
+```rust
+import "../src/testclient"
+
+fun app() => [
+  get("/items/\{id\}", (req) => json_response("\{\"id\": " + show(path_int(req, "id")) + "\}")),
+  post("/items",       (req) => status_response(201, req_body(req)))
+]
+
+test "GET /items/7 returns 200" {
+  let r = test_get(app(), "/items/7")
+  assert(route_response_status(r) == 200)
+}
+
+test "a missing route is a 404" {
+  let r = test_get(app(), "/nope")
+  assert(route_response_status(r) == 404)
+}
+```
+
+| Function | Description |
+|---|---|
+| `test_get(routes, path)` | Dispatch a `GET`. `path` may include a query string (`/items?page=2`) |
+| `test_post(routes, path, body)` | Dispatch a `POST` with a body |
+| `test_put(routes, path, body)` | Dispatch a `PUT` with a body |
+| `test_patch(routes, path, body)` | Dispatch a `PATCH` with a body |
+| `test_delete(routes, path)` | Dispatch a `DELETE` |
+| `test_request(routes, method, path, headers, body)` | Full control, including raw request headers |
+| `test_request_mw(routes, middlewares, method, path, headers, body)` | Dispatch through the middleware chain too |
+
 ## License
 
 MIT
