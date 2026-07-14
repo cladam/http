@@ -354,8 +354,8 @@ Each returns `Ok(value)` when the field is present and the right type,
 | Function | Returns | Description |
 |---|---|---|
 | `field_str(doc, key)` | `result<string, string>` | Required string field |
-| `field_int(doc, key)` | `result<int, string>` | Required number, rounded to `int` |
-| `field_num(doc, key)` | `result<float, string>` | Required floating-point field |
+| `field_int(doc, key)` | `result<int, string>` | Required integer (rejects non-integral numbers) |
+| `field_num(doc, key)` | `result<float, string>` | Required number (integer or float) |
 | `field_bool(doc, key)` | `result<bool, string>` | Required boolean field |
 
 Optional variants return `Ok(None)` when absent, `Ok(Some(v))` when present and
@@ -382,16 +382,12 @@ array — `ok_json(jarr(map(items, encode_item)))`.
 
 | Function | Returns | Description |
 |---|---|---|
-| `jstr(s)` / `jnum(x)` / `jint(n)` / `jbool(b)` / `jnull()` | `Json` | Scalar JSON values (`jint` renders as a float, e.g. `7.0`) |
+| `jstr(s)` / `jnum(x)` / `jint(n)` / `jbool(b)` / `jnull()` | `Json` | Scalar JSON values |
 | `jobj(fields)` | `Json` | Object from a `list<(string, Json)>` |
 | `jarr(items)` | `Json` | Array from a `list<Json>` |
 | `ok_json(j)` | `ServerResponse` | `200 OK` with the encoded JSON body |
 | `created_json(j)` | `ServerResponse` | `201 Created` with the encoded JSON body |
 | `json_response_of(status, j)` | `ServerResponse` | Custom status with the encoded JSON body |
-
-> **Note:** the `Json` number type is a float, so integer fields render with a
-> `.0` suffix (`7.0`). This is valid JSON; distinguishing `7` from `7.0` would
-> require an integer variant in the json library.
 
 ### Low-level server (`http_server`)
 

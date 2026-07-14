@@ -46,19 +46,21 @@ pub fun field_str(doc: Json, key: string) : result<string, string> => match json
   None             => Err("missing required field '" + key + "'")
 }
 
-// Required integer field. JSON has no separate integer type, so we accept a
-// number only when it has no fractional part (1 or 1.0, but not 1.5) — matching
-// FastAPI/Pydantic, which reject non-integral values rather than rounding them.
+// Required integer field. Accepts a JSON integer (`JInt`) directly, or a
+// number without a fractional part (1.0 but not 1.5) — matching FastAPI/Pydantic,
+// which reject non-integral values rather than rounding them.
 pub fun field_int(doc: Json, key: string) : result<int, string> => match json_get(doc, key) {
+  Some(JInt(n))    => Ok(n),
   Some(JNumber(v)) => if to_float(round(v)) == v { Ok(round(v)) }
                       else { Err("field '" + key + "' must be an integer") },
   Some(_)          => Err("field '" + key + "' must be an integer"),
   None             => Err("missing required field '" + key + "'")
 }
 
-// Required floating-point field.
+// Required floating-point field. Accepts a JSON float or integer.
 pub fun field_num(doc: Json, key: string) : result<float, string> => match json_get(doc, key) {
   Some(JNumber(v)) => Ok(v),
+  Some(JInt(n))    => Ok(to_float(n)),
   Some(_)          => Err("field '" + key + "' must be a number"),
   None             => Err("missing required field '" + key + "'")
 }
@@ -85,6 +87,7 @@ pub fun opt_str(doc: Json, key: string) : result<maybe<string>, string> => match
 
 pub fun opt_int(doc: Json, key: string) : result<maybe<int>, string> => match json_get(doc, key) {
   None             => Ok(None),
+  Some(JInt(n))    => Ok(Some(n)),
   Some(JNumber(v)) => if to_float(round(v)) == v { Ok(Some(round(v))) }
                       else { Err("field '" + key + "' must be an integer") },
   Some(_)          => Err("field '" + key + "' must be an integer")
@@ -164,7 +167,7 @@ pub fun unprocessable(msg: string) : ServerResponse {
 // ---------------------------------------------------------------------------
 
 pub fun jstr(s: string) : Json => JString(s)
-pub fun jint(n: int) : Json => JNumber(to_float(n))
+pub fun jint(n: int) : Json => JInt(n)
 pub fun jnum(x: float) : Json => JNumber(x)
 pub fun jbool(b: bool) : Json => JBool(b)
 pub fun jnull() : Json => JNull

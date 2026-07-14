@@ -62,6 +62,14 @@ test "field_num reads a float" {
   }
 }
 
+test "field_num accepts an integer literal" {
+  let doc = unwrap(parse_json("\{\"p\": 3\}"))
+  match field_num(doc, "p") {
+    Ok(v)  => assert(v == 3.0),
+    Err(_) => assert(false)
+  }
+}
+
 test "field_bool reads a boolean" {
   let doc = unwrap(parse_json("\{\"b\": true\}"))
   match field_bool(doc, "b") {
@@ -188,8 +196,7 @@ test "jstr builds a JSON string" {
 }
 
 test "jint builds a JSON number from an int" {
-  // JSON's number type is a float, so an int renders with a .0 suffix.
-  assert(json_emit(jint(7)) == "7.0")
+  assert(json_emit(jint(7)) == "7")
 }
 
 test "jnum builds a JSON number from a float" {
@@ -206,12 +213,12 @@ test "jnull builds JSON null" {
 
 test "jobj builds a JSON object" {
   let j = jobj([("a", jint(1)), ("b", jstr("x"))])
-  assert(json_emit(j) == "\{\"a\": 1.0, \"b\": \"x\"\}")
+  assert(json_emit(j) == "\{\"a\": 1, \"b\": \"x\"\}")
 }
 
 test "jarr builds a JSON array" {
   let j = jarr([jint(1), jint(2)])
-  assert(json_emit(j) == "[1.0, 2.0]")
+  assert(json_emit(j) == "[1, 2]")
 }
 
 // ============================================================
