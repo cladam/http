@@ -29,24 +29,34 @@ fun decode_item(doc: Json) : result<Item, string> {
   }
 }
 
-fun item_to_json(it: Item) : string {
-  json_emit(JObject([
-    ("name",     JString(it.name)),
-    ("price",    JNumber(it.price)),
-    ("in_stock", JBool(it.in_stock))
-  ]))
-}
+// Encode an Item to a JSON value using the terse constructors (Layer 4).
+fun encode_item(it: Item) : Json =>
+  jobj([
+    ("name",     jstr(it.name)),
+    ("price",    jnum(it.price)),
+    ("in_stock", jbool(it.in_stock))
+  ])
 
 fun handle_create(req) : ServerResponse {
   match decode_body(req, decode_item) {
-    Ok(item) => json_response(item_to_json(item)),
-    Err(msg) => unprocessable(msg)
+    Ok(item) => created_json(encode_item(item)),   // 201 Created
+    Err(msg) => unprocessable(msg)                  // 422 with {"detail": ...}
   }
+}
+
+// Return a collection: encode each item and wrap in a JSON array.
+fun handle_list(req) : ServerResponse {
+  let items = [
+    Item { name: "Widget", price: 9.99, in_stock: true },
+    Item { name: "Gadget", price: 5.0,  in_stock: false }
+  ]
+  ok_json(jarr(map(items, encode_item)))
 }
 
 fun main() {
   println("Server starting on http://localhost:8080")
   serve_routes(8080, [
+    get("/items",  handle_list),
     post("/items", handle_create)
   ])
 }

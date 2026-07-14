@@ -148,3 +148,52 @@ pub fun res_map(r, f) => match r {
 pub fun unprocessable(msg: string) : ServerResponse {
   json_status(422, json_emit(JObject([("detail", JString(msg))])))
 }
+
+// ---------------------------------------------------------------------------
+// JSON value constructors (terse aliases for building response bodies)
+//
+// These wrap the json library's Json constructors with short names so an
+// encoder reads cleanly:
+//
+//   fun encode_item(it: Item) : Json =>
+//     jobj([
+//       ("name",     jstr(it.name)),
+//       ("price",    jnum(it.price)),
+//       ("in_stock", jbool(it.in_stock))
+//     ])
+// ---------------------------------------------------------------------------
+
+pub fun jstr(s: string) : Json => JString(s)
+pub fun jint(n: int) : Json => JNumber(to_float(n))
+pub fun jnum(x: float) : Json => JNumber(x)
+pub fun jbool(b: bool) : Json => JBool(b)
+pub fun jnull() : Json => JNull
+
+// Build a JSON object from a list of (key, Json) pairs.
+pub fun jobj(fields: list<(string, Json)>) : Json => JObject(fields)
+
+// Build a JSON array from a list of Json values.
+pub fun jarr(items: list<Json>) : Json => JArray(items)
+
+// ---------------------------------------------------------------------------
+// Typed JSON responses (encode a Json value into a ServerResponse)
+//
+// The mirror of decode_body: build a Json value with an encoder, then send it.
+//
+//   Ok(item)  => ok_json(encode_item(item))          // 200
+//   Ok(item)  => created_json(encode_item(item))     // 201
+//   ...       => json_response_of(202, encode(x))     // custom status
+//
+// For a collection, encode each element and wrap in an array:
+//   ok_json(jarr(map(items, encode_item)))
+// ---------------------------------------------------------------------------
+
+// 200 OK with a JSON body.
+pub fun ok_json(j: Json) : ServerResponse => json_status(200, json_emit(j))
+
+// 201 Created with a JSON body.
+pub fun created_json(j: Json) : ServerResponse => json_status(201, json_emit(j))
+
+// Custom status with a JSON body.
+pub fun json_response_of(status: int, j: Json) : ServerResponse => json_status(status, json_emit(j))
+

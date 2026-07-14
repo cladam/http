@@ -178,3 +178,63 @@ test "unprocessable emits a JSON detail body" {
   let r = unprocessable("bad")
   assert(response_body(r) == "\{\"detail\": \"bad\"\}")
 }
+
+// ============================================================
+// JSON value constructors (Layer 4)
+// ============================================================
+
+test "jstr builds a JSON string" {
+  assert(json_emit(jstr("hi")) == "\"hi\"")
+}
+
+test "jint builds a JSON number from an int" {
+  // JSON's number type is a float, so an int renders with a .0 suffix.
+  assert(json_emit(jint(7)) == "7.0")
+}
+
+test "jnum builds a JSON number from a float" {
+  assert(json_emit(jnum(1.5)) == "1.5")
+}
+
+test "jbool builds a JSON boolean" {
+  assert(json_emit(jbool(true)) == "true")
+}
+
+test "jnull builds JSON null" {
+  assert(json_emit(jnull()) == "null")
+}
+
+test "jobj builds a JSON object" {
+  let j = jobj([("a", jint(1)), ("b", jstr("x"))])
+  assert(json_emit(j) == "\{\"a\": 1.0, \"b\": \"x\"\}")
+}
+
+test "jarr builds a JSON array" {
+  let j = jarr([jint(1), jint(2)])
+  assert(json_emit(j) == "[1.0, 2.0]")
+}
+
+// ============================================================
+// Typed JSON responses (Layer 4)
+// ============================================================
+
+test "ok_json returns 200 with a JSON content type" {
+  let r = ok_json(jobj([("ok", jbool(true))]))
+  assert(response_status(r) == 200)
+}
+
+test "ok_json emits the encoded body" {
+  let r = ok_json(jobj([("ok", jbool(true))]))
+  assert(response_body(r) == "\{\"ok\": true\}")
+}
+
+test "created_json returns 201" {
+  let r = created_json(jobj([("id", jint(1))]))
+  assert(response_status(r) == 201)
+}
+
+test "json_response_of uses the given status" {
+  let r = json_response_of(202, jarr([]))
+  assert(response_status(r) == 202)
+}
+

@@ -330,10 +330,18 @@ fun decode_item(doc: Json) : result<Item, string> {
   }
 }
 
+// Encode a struct to a JSON value with the terse constructors.
+fun encode_item(it: Item) : Json =>
+  jobj([
+    ("name",     jstr(it.name)),
+    ("price",    jnum(it.price)),
+    ("in_stock", jbool(it.in_stock))
+  ])
+
 fun handle_create(req) : ServerResponse {
   match decode_body(req, decode_item) {
-    Ok(item) => json_response(json_emit(JObject([("name", JString(item.name))]))),
-    Err(msg) => unprocessable(msg)   // 422 with the validation message
+    Ok(item) => created_json(encode_item(item)),   // 201 Created
+    Err(msg) => unprocessable(msg)                  // 422 with {"detail": ...}
   }
 }
 ```
@@ -364,7 +372,26 @@ correct, and `Err` when present but the wrong type:
 | Function | Description |
 |---|---|
 | `decode_body(req, decoder)` | Parse the request body as JSON, then run `decoder`. `Err` on malformed JSON or a decode failure |
-| `unprocessable(msg)` | `422 Unprocessable Entity` with the message |
+| `unprocessable(msg)` | `422 Unprocessable Entity` with a `{"detail": msg}` JSON body |
+
+#### Typed responses
+
+The mirror of decoding: build a `Json` value with terse constructors, then send
+it. Encode a collection by mapping the encoder over a list and wrapping in an
+array — `ok_json(jarr(map(items, encode_item)))`.
+
+| Function | Returns | Description |
+|---|---|---|
+| `jstr(s)` / `jnum(x)` / `jint(n)` / `jbool(b)` / `jnull()` | `Json` | Scalar JSON values (`jint` renders as a float, e.g. `7.0`) |
+| `jobj(fields)` | `Json` | Object from a `list<(string, Json)>` |
+| `jarr(items)` | `Json` | Array from a `list<Json>` |
+| `ok_json(j)` | `ServerResponse` | `200 OK` with the encoded JSON body |
+| `created_json(j)` | `ServerResponse` | `201 Created` with the encoded JSON body |
+| `json_response_of(status, j)` | `ServerResponse` | Custom status with the encoded JSON body |
+
+> **Note:** the `Json` number type is a float, so integer fields render with a
+> `.0` suffix (`7.0`). This is valid JSON; distinguishing `7` from `7.0` would
+> require an integer variant in the json library.
 
 ### Low-level server (`http_server`)
 
