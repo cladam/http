@@ -32,11 +32,15 @@ pub struct server_request
 // Raw externs — call the C functions in http_server_inline.c
 // ---------------------------------------------------------------------------
 
-extern http_server_start_raw( port : int ) : io int
-  c "kk_http_server_start"
+// A request handler: given a request node id, read the request, compute a
+// response, and stage it via http_set_response.
+pub alias req_handler = (int) -> io ()
 
-extern http_server_accept_raw( srv : int ) : io int
-  c "kk_http_server_accept"
+extern http_server_run_raw( port : int, on_request : req_handler ) : io ()
+  c "kk_http_server_run"
+
+extern http_set_response_raw( node : int, status : int, headers : string, body : string ) : io ()
+  c "kk_http_set_response"
 
 extern http_req_method_raw( req : int ) : io string
   c "kk_http_req_method"
@@ -53,54 +57,31 @@ extern http_req_headers_raw( req : int ) : io string
 extern http_req_body_raw( req : int ) : io string
   c "kk_http_req_body"
 
-extern http_server_respond_raw(
-  srv     : int,
-  req     : int,
-  status  : int,
-  headers : string,
-  body    : string
-) : io ()
-  c "kk_http_server_respond"
-
-extern http_server_stop_raw( srv : int ) : io ()
-  c "kk_http_server_stop"
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
-// Start an HTTP server listening on the given port.
-// Returns a server handle to pass to http_server_accept / http_server_stop.
-pub fun http_server_start( port : int ) : io http_server
-  http_server_start_raw(port)
+// Run an HTTP server on `port`.  For every request, `handler` is invoked with
+// the request's node id; the handler reads the request via `request_from_id`,
+// computes a response, and stages it with `http_set_response`.  The request is
+// handled synchronously on this thread inside libmicrohttpd's event loop, so
+// there is no cross-thread handoff.  Never returns.
+pub fun http_server_run( port : int, on_request : req_handler ) : io ()
+  http_server_run_raw(port, on_request)
 
-// Block until the next HTTP request arrives, then return it.
-// Multiple simultaneous connections are held by libmicrohttpd; this returns
-// one at a time for sequential processing.
-pub fun http_server_accept( srv : http_server ) : io server_request
-  val rid  = http_server_accept_raw(srv)
-  val meth = http_req_method_raw(rid)
-  val pth  = http_req_path_raw(rid)
-  val qry  = http_req_query_raw(rid)
-  val hdrs = http_req_headers_raw(rid)
-  val bdy  = http_req_body_raw(rid)
-  Server_request(meth, pth, qry, hdrs, bdy, rid)
+// Stage the response (status + headers + body) for the request node `node`.
+// Called from inside a handler; libmicrohttpd sends it once the handler returns.
+pub fun http_set_response( node : int, status : int, headers : string, body : string ) : io ()
+  http_set_response_raw(node, status, headers, body)
 
-// Send an HTTP response for a pending request.
-// headers is a newline-separated "Name: Value" string.
-// The request handle is consumed — do not call this twice for the same req.
-pub fun http_server_respond(
-  srv     : http_server,
-  req     : server_request,
-  status  : int,
-  headers : string,
-  body    : string
-) : io ()
-  http_server_respond_raw(srv, req.req_id, status, headers, body)
-
-// Stop the server and release all resources.
-pub fun http_server_stop( srv : http_server ) : io ()
-  http_server_stop_raw(srv)
+// Build a server_request value from a request node id (used inside a handler).
+pub fun request_from_id( node : int ) : io server_request
+  val meth = http_req_method_raw(node)
+  val pth  = http_req_path_raw(node)
+  val qry  = http_req_query_raw(node)
+  val hdrs = http_req_headers_raw(node)
+  val bdy  = http_req_body_raw(node)
+  Server_request(meth, pth, qry, hdrs, bdy, node)
 
 // ---------------------------------------------------------------------------
 // Field accessors — Hica callers cannot read fields off an extern Koka

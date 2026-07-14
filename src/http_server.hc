@@ -77,18 +77,13 @@ pub fun response_body(r: ServerResponse) : string { r.body }
 // --- Server loop ---
 
 // Start serving on port, calling handler for each request.
-// Requests are processed sequentially; libmicrohttpd holds concurrent
-// connections open until their turn arrives.  Never returns.
+// Runs a single-threaded event loop; libmicrohttpd interleaves concurrent
+// connections and calls `handler` synchronously per completed request.
+// Never returns.
 pub fun serve(port: int, handler) {
-  let srv = http_server_start(port)
-  serve_loop(srv, handler)
-}
-
-// Internal recursive loop — exported because all functions in a library
-// module must be pub to be reachable from the generated Koka module.
-pub fun serve_loop(srv, handler) {
-  let req = http_server_accept(srv)
-  let resp = handler(req)
-  http_server_respond(srv, req, resp.status, resp.headers, resp.body)
-  serve_loop(srv, handler)
+  http_server_run(port, (node) => {
+    let req = request_from_id(node)
+    let resp = handler(req)
+    http_set_response(node, response_status(resp), response_headers(resp), response_body(resp))
+  })
 }

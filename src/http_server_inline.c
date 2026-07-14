@@ -4,27 +4,33 @@
  * Copyright (C) 2026 Claes Adamsson <claes.adamsson@gmail.com>
  * MIT License
  *
- * Threading model:
- *   MHD runs an internal polling thread that handles all socket I/O and
- *   calls access_handler for each complete request.  access_handler suspends
- *   the connection and pushes the request onto a mutex-protected queue, then
- *   signals a condition variable.
+ * Threading model (single-threaded external polling):
+ *   MHD runs in EXTERNAL polling mode — it has NO internal thread.  The Koka
+ *   thread itself drives libmicrohttpd: kk_http_server_accept runs a
+ *   select()+MHD_run() loop, so MHD's access_handler executes on the very same
+ *   thread as the Koka runtime.  access_handler suspends the connection and
+ *   pushes the completed request onto a queue; accept then dequeues it.
  *
- *   Koka (single-threaded) calls kk_http_server_accept which waits on the
- *   condvar, dequeues the request, and returns field-by-field.  Koka calls
- *   kk_http_server_respond to queue a response and resume the connection;
- *   MHD's thread then transmits it.
+ *   kk_http_server_respond queues the response, resumes the connection, and
+ *   kicks MHD_run so the bytes go out; any remaining flush happens on the next
+ *   accept poll.
  *
- *   No Koka runtime functions are ever called from MHD's thread — only
- *   plain C structs cross the thread boundary.
+ *   Because everything — MHD callbacks, the request queue, and all Koka work —
+ *   happens on a single thread, there is NO cross-thread handoff and no lock is
+ *   needed.  A Koka context/heap is thread-local, so this is also the only
+ *   memory-safe way to share Koka values with libmicrohttpd callbacks.  For
+ *   multi-core scaling, run several of these servers as prefork processes
+ *   sharing the listen socket via SO_REUSEPORT.
  */
 
 #include <microhttpd.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
+#include <sys/select.h>
+#include <sys/time.h>
 
 /* ------------------------------------------------------------------ */
 /* Growing string buffer                                               */
@@ -74,7 +80,8 @@ typedef struct {
 } hcsrv_upload_t;
 
 /* ------------------------------------------------------------------ */
-/* A completed, suspended request node (lives in the shared queue)     */
+/* A request node: request data in, staged response out.  Lives only   */
+/* for the duration of a single hcsrv_access_handler invocation.       */
 /* ------------------------------------------------------------------ */
 
 typedef struct hcsrv_req hcsrv_req_t;
@@ -86,7 +93,12 @@ struct hcsrv_req {
   char*  headers;  /* raw "Name: Value\n..." */
   char*  body;
   size_t body_size;
-  hcsrv_req_t* next;
+  /* Response staged by the Koka handler via kk_http_set_response. */
+  int    resp_status;
+  char*  resp_headers;   /* "Name: Value\n..." (may be NULL) */
+  char*  resp_body;      /* may be NULL */
+  size_t resp_body_len;
+  int    resp_set;
 };
 
 /* ------------------------------------------------------------------ */
@@ -95,11 +107,9 @@ struct hcsrv_req {
 
 typedef struct {
   struct MHD_Daemon* daemon;
-  pthread_mutex_t    mutex;
-  pthread_cond_t     cond;
-  hcsrv_req_t*       head;
-  hcsrv_req_t*       tail;
-  volatile int       stopped;
+  kk_function_t      handler;   /* Koka: (int node_id) -> io ()  (owned) */
+  kk_context_t*      ctx;       /* Koka context of the serving thread */
+  int                stopped;
 } hcsrv_t;
 
 /* ------------------------------------------------------------------ */
@@ -141,11 +151,13 @@ static void hcsrv_req_free(hcsrv_req_t* node) {
   free(node->query);
   free(node->headers);
   free(node->body);
+  free(node->resp_headers);
+  free(node->resp_body);
   free(node);
 }
 
 /* ------------------------------------------------------------------ */
-/* MHD access handler (called on MHD's internal polling thread)        */
+/* MHD access handler (runs on the Koka thread, inside our MHD_run)     */
 /* ------------------------------------------------------------------ */
 
 static enum MHD_Result hcsrv_access_handler(
@@ -177,7 +189,7 @@ static enum MHD_Result hcsrv_access_handler(
     return MHD_YES;
   }
 
-  /* All data received — build a request node */
+  /* All data received — build a request node (on the Koka thread). */
   hcsrv_req_t* node = (hcsrv_req_t*)calloc(1, sizeof(*node));
   if (!node) return MHD_NO;
 
@@ -206,26 +218,50 @@ static enum MHD_Result hcsrv_access_handler(
     node->body      = strdup("");
     node->body_size = 0;
   }
-
-  /* Suspend connection — MHD will not close it until resumed */
-  MHD_suspend_connection(conn);
-
-  /* Enqueue the node (signalling the Koka thread) */
-  pthread_mutex_lock(&srv->mutex);
-  if (srv->tail) {
-    srv->tail->next = node;
-  } else {
-    srv->head = node;
-  }
-  srv->tail = node;
-  pthread_cond_signal(&srv->cond);
-  pthread_mutex_unlock(&srv->mutex);
-
-  /* Clean up upload state */
   free(up);
   *con_cls = NULL;
 
-  return MHD_YES;
+  /* Invoke the Koka handler synchronously.  We are already running on the
+     Koka thread (inside MHD_run, which we drive ourselves in kk_http_server_run),
+     so calling back into Koka is safe.  The handler reads the request through the
+     node id and stages its response by calling kk_http_set_response, which fills
+     node->resp_*.  No suspend/resume, no queue, no cross-thread handoff. */
+  kk_context_t* ctx = srv->ctx;
+  kk_integer_t node_id = kk_integer_from_int((kk_intx_t)(uintptr_t)node, ctx);
+  kk_function_t h = kk_function_dup(srv->handler, ctx);
+  kk_function_call(kk_unit_t,
+    (kk_function_t, kk_integer_t, kk_context_t*),
+    h, (h, node_id, ctx), ctx);
+
+  /* Build the MHD response from the staged fields (MHD copies the body). */
+  int status = node->resp_set ? node->resp_status : 500;
+  struct MHD_Response* resp = MHD_create_response_from_buffer(
+    node->resp_body_len,
+    node->resp_body ? (void*)node->resp_body : (void*)"",
+    MHD_RESPMEM_MUST_COPY);
+
+  /* Parse and add response headers (newline-separated "Name: Value"). */
+  if (node->resp_headers) {
+    char* saveptr = NULL;
+    char* line = strtok_r(node->resp_headers, "\n", &saveptr);
+    while (line) {
+      char* colon = strchr(line, ':');
+      if (colon) {
+        *colon = '\0';
+        const char* name  = line;
+        const char* value = colon + 1;
+        while (*value == ' ') value++;
+        MHD_add_response_header(resp, name, value);
+      }
+      line = strtok_r(NULL, "\n", &saveptr);
+    }
+  }
+
+  enum MHD_Result rc = MHD_queue_response(conn, (unsigned int)status, resp);
+  MHD_destroy_response(resp);
+
+  hcsrv_req_free(node);
+  return rc;
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,59 +284,126 @@ static void hcsrv_request_completed(
 /* Koka-callable functions (always invoked from Koka's thread)         */
 /* ================================================================== */
 
-/* Start an HTTP server on the given port.
-   Returns an opaque server handle (pointer as int), or 0 on failure. */
-static kk_integer_t kk_http_server_start(kk_integer_t port_int, kk_context_t* ctx) {
+/* Drive libmicrohttpd for one poll cycle on the Koka thread: wait (bounded)
+   for socket activity, then let MHD process it.  Because every request is
+   handled synchronously inside hcsrv_access_handler, there is no queue and no
+   suspend/resume — MHD naturally interleaves concurrent connections across
+   successive MHD_run calls.  Returns 0 only on a fatal daemon error. */
+static int hcsrv_poll(hcsrv_t* srv) {
+  fd_set rs, ws, es;
+  FD_ZERO(&rs); FD_ZERO(&ws); FD_ZERO(&es);
+  MHD_socket maxfd = 0;
+  if (MHD_get_fdset(srv->daemon, &rs, &ws, &es, &maxfd) != MHD_YES)
+    return 0;
+
+  struct timeval tv;
+  MHD_UNSIGNED_LONG_LONG mhd_to;
+  if (MHD_get_timeout(srv->daemon, &mhd_to) == MHD_YES) {
+    tv.tv_sec  = (time_t)(mhd_to / 1000);
+    tv.tv_usec = (long)((mhd_to % 1000) * 1000);
+  } else {
+    /* No MHD timeout pending: block up to 1s so we periodically re-check stop. */
+    tv.tv_sec  = 1;
+    tv.tv_usec = 0;
+  }
+
+  int sel = select((int)maxfd + 1, &rs, &ws, &es, &tv);
+  if (sel < 0 && errno != EINTR)
+    return 0;
+  MHD_run(srv->daemon);
+  return 1;
+}
+
+/* Stage the response computed by the Koka handler onto the request node.
+   Copies the strings into C memory; the node is consumed by the caller
+   (hcsrv_access_handler) immediately after the handler returns. */
+static kk_unit_t kk_http_set_response(
+  kk_integer_t  node_int,
+  kk_integer_t  status_int,
+  kk_string_t   headers_str,
+  kk_string_t   body_str,
+  kk_context_t* ctx)
+{
+  hcsrv_req_t* node   = (hcsrv_req_t*)(uintptr_t)kk_integer_clamp64(node_int, ctx);
+  int          status = (int)           kk_integer_clamp64(status_int, ctx);
+  kk_integer_drop(node_int,   ctx);
+  kk_integer_drop(status_int, ctx);
+
+  if (node) {
+    kk_ssize_t  blen;
+    const char* b = kk_string_cbuf_borrow(body_str, &blen, ctx);
+    kk_ssize_t  hlen;
+    const char* h = kk_string_cbuf_borrow(headers_str, &hlen, ctx);
+
+    node->resp_status   = status;
+    node->resp_body     = NULL;
+    node->resp_body_len = 0;
+    if (blen > 0) {
+      node->resp_body = (char*)malloc((size_t)blen);
+      if (node->resp_body) {
+        memcpy(node->resp_body, b, (size_t)blen);
+        node->resp_body_len = (size_t)blen;
+      }
+    }
+    node->resp_headers = NULL;
+    if (hlen > 0) {
+      node->resp_headers = (char*)malloc((size_t)hlen + 1);
+      if (node->resp_headers) {
+        memcpy(node->resp_headers, h, (size_t)hlen);
+        node->resp_headers[hlen] = '\0';
+      }
+    }
+    node->resp_set = 1;
+  }
+
+  kk_string_drop(headers_str, ctx);
+  kk_string_drop(body_str,    ctx);
+  return kk_Unit;
+}
+
+/* Run an HTTP server on `port`, dispatching every request to the Koka
+   `handler` (a `(int node_id) -> io ()` closure).  Single-threaded event loop:
+   we own the Koka thread and drive MHD_run ourselves, so the handler always
+   runs on this same thread with a valid context.  Never returns until stopped. */
+static kk_unit_t kk_http_server_run(
+  kk_integer_t   port_int,
+  kk_function_t  handler,
+  kk_context_t*  ctx)
+{
   int port = (int)kk_integer_clamp64(port_int, ctx);
   kk_integer_drop(port_int, ctx);
 
   hcsrv_t* srv = (hcsrv_t*)calloc(1, sizeof(*srv));
-  if (!srv) return kk_integer_from_int(0, ctx);
+  if (!srv) { kk_function_drop(handler, ctx); return kk_Unit; }
+  srv->handler = handler;   /* take ownership for the server's lifetime */
+  srv->ctx     = ctx;
 
-  pthread_mutex_init(&srv->mutex, NULL);
-  pthread_cond_init(&srv->cond, NULL);
-
+  /* External polling, no internal thread, no suspend/resume. */
   srv->daemon = MHD_start_daemon(
-    MHD_USE_INTERNAL_POLLING_THREAD | MHD_ALLOW_SUSPEND_RESUME,
+    MHD_NO_FLAG,
     (uint16_t)port,
     NULL, NULL,
     hcsrv_access_handler, srv,
+    MHD_OPTION_CONNECTION_LIMIT,      (unsigned int)4096,
+    MHD_OPTION_LISTEN_BACKLOG_SIZE,   (unsigned int)1024,
     MHD_OPTION_NOTIFY_COMPLETED,
       (MHD_RequestCompletedCallback)hcsrv_request_completed, NULL,
     MHD_OPTION_END
   );
-
   if (!srv->daemon) {
-    pthread_mutex_destroy(&srv->mutex);
-    pthread_cond_destroy(&srv->cond);
+    kk_function_drop(srv->handler, ctx);
     free(srv);
-    return kk_integer_from_int(0, ctx);
+    return kk_Unit;
   }
 
-  return kk_integer_from_int((kk_intx_t)(uintptr_t)srv, ctx);
-}
-
-/* Block until the next request arrives in the queue.
-   Returns an opaque request handle (pointer as int), or 0 if stopped. */
-static kk_integer_t kk_http_server_accept(kk_integer_t srv_int, kk_context_t* ctx) {
-  hcsrv_t* srv = (hcsrv_t*)(uintptr_t)kk_integer_clamp64(srv_int, ctx);
-  kk_integer_drop(srv_int, ctx);
-  if (!srv) return kk_integer_from_int(0, ctx);
-
-  pthread_mutex_lock(&srv->mutex);
-  while (srv->head == NULL && !srv->stopped)
-    pthread_cond_wait(&srv->cond, &srv->mutex);
-
-  hcsrv_req_t* node = srv->head;
-  if (node) {
-    srv->head = node->next;
-    if (!srv->head) srv->tail = NULL;
-    node->next = NULL;
+  while (!srv->stopped) {
+    if (!hcsrv_poll(srv)) break;
   }
-  pthread_mutex_unlock(&srv->mutex);
 
-  if (!node) return kk_integer_from_int(0, ctx);
-  return kk_integer_from_int((kk_intx_t)(uintptr_t)node, ctx);
+  MHD_stop_daemon(srv->daemon);
+  kk_function_drop(srv->handler, ctx);
+  free(srv);
+  return kk_Unit;
 }
 
 /* Field accessors — read from the C req node, create Koka strings.
@@ -339,111 +442,4 @@ static kk_string_t kk_http_req_body(kk_integer_t req_int, kk_context_t* ctx) {
   kk_integer_drop(req_int, ctx);
   if (!n || !n->body) return kk_string_alloc_from_utf8n(0, "", ctx);
   return kk_string_alloc_from_utf8n((kk_ssize_t)n->body_size, n->body, ctx);
-}
-
-/* Send a response for a suspended request.
-   headers is a newline-separated "Name: Value\n..." string.
-   Frees the request node. Queues response then resumes the connection. */
-static kk_unit_t kk_http_server_respond(
-  kk_integer_t srv_int,
-  kk_integer_t req_int,
-  kk_integer_t status_int,
-  kk_string_t  headers_str,
-  kk_string_t  body_str,
-  kk_context_t* ctx)
-{
-  hcsrv_t*     srv    = (hcsrv_t*)    (uintptr_t)kk_integer_clamp64(srv_int,    ctx);
-  hcsrv_req_t* node   = (hcsrv_req_t*)(uintptr_t)kk_integer_clamp64(req_int,    ctx);
-  int          status = (int)           kk_integer_clamp64(status_int, ctx);
-
-  kk_integer_drop(srv_int,    ctx);
-  kk_integer_drop(req_int,    ctx);
-  kk_integer_drop(status_int, ctx);
-
-  if (!node) {
-    kk_string_drop(headers_str, ctx);
-    kk_string_drop(body_str,    ctx);
-    return kk_Unit;
-  }
-
-  kk_ssize_t  body_len;
-  const char* c_body = kk_string_cbuf_borrow(body_str, &body_len, ctx);
-  kk_ssize_t  hdr_len;
-  const char* c_hdrs = kk_string_cbuf_borrow(headers_str, &hdr_len, ctx);
-
-  /* Copy body: MHD takes ownership via MHD_RESPMEM_MUST_FREE */
-  void* body_copy = NULL;
-  if (body_len > 0) {
-    body_copy = malloc((size_t)body_len);
-    if (body_copy) memcpy(body_copy, c_body, (size_t)body_len);
-  }
-
-  struct MHD_Response* resp = MHD_create_response_from_buffer(
-    (size_t)body_len,
-    body_copy ? body_copy : (void*)"",
-    body_copy ? MHD_RESPMEM_MUST_FREE : MHD_RESPMEM_PERSISTENT);
-
-  /* Parse and add response headers (newline-separated "Name: Value") */
-  if (hdr_len > 0) {
-    char* h_copy = (char*)malloc((size_t)hdr_len + 1);
-    if (h_copy) {
-      memcpy(h_copy, c_hdrs, (size_t)hdr_len);
-      h_copy[hdr_len] = '\0';
-      char* line = strtok(h_copy, "\n");
-      while (line) {
-        char* colon = strchr(line, ':');
-        if (colon) {
-          *colon = '\0';
-          const char* name  = line;
-          const char* value = colon + 1;
-          while (*value == ' ') value++;
-          MHD_add_response_header(resp, name, value);
-        }
-        line = strtok(NULL, "\n");
-      }
-      free(h_copy);
-    }
-  }
-
-  /* Save connection pointer before freeing the node */
-  struct MHD_Connection* conn = node->connection;
-  hcsrv_req_free(node);
-
-  /* Queue response, then signal MHD to send it */
-  MHD_queue_response(conn, (unsigned int)status, resp);
-  MHD_destroy_response(resp);
-  MHD_resume_connection(conn);
-
-  kk_string_drop(headers_str, ctx);
-  kk_string_drop(body_str,    ctx);
-
-  return kk_Unit;
-}
-
-/* Stop the server, drain the queue, free all resources. */
-static kk_unit_t kk_http_server_stop(kk_integer_t srv_int, kk_context_t* ctx) {
-  hcsrv_t* srv = (hcsrv_t*)(uintptr_t)kk_integer_clamp64(srv_int, ctx);
-  kk_integer_drop(srv_int, ctx);
-  if (!srv) return kk_Unit;
-
-  pthread_mutex_lock(&srv->mutex);
-  srv->stopped = 1;
-  pthread_cond_broadcast(&srv->cond);
-  pthread_mutex_unlock(&srv->mutex);
-
-  MHD_stop_daemon(srv->daemon);
-
-  /* Drain any queued requests that were never responded to */
-  hcsrv_req_t* node = srv->head;
-  while (node) {
-    hcsrv_req_t* next = node->next;
-    hcsrv_req_free(node);
-    node = next;
-  }
-
-  pthread_mutex_destroy(&srv->mutex);
-  pthread_cond_destroy(&srv->cond);
-  free(srv);
-
-  return kk_Unit;
 }

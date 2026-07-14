@@ -42,8 +42,32 @@ pub struct route
 pub fun make_route(method: string, pattern: string, handler_fn: (request) -> io route_response) : route
   Route(method, pattern, handler_fn)
 
-pub fun make_route_response(status: int, headers: string, body: string) : route_response
+// `noinline` so the Route_response allocation is never fused (via Perceus reuse)
+// with a caller's drop of an unrelated value — that fusion corrupts the heap when
+// a short-circuiting middleware drops its `next` closure in the same branch.
+pub noinline fun make_route_response(status: int, headers: string, body: string) : route_response
   Route_response(status, headers, body)
+
+// Typed accessors for route_response — used where the value's type is inferred
+// (e.g. middleware plumbing), avoiding ambiguity with the other structs that
+// also have status/headers/body fields.
+pub fun route_response_status(r: route_response) : int
+  r.status
+
+pub fun route_response_headers(r: route_response) : string
+  r.headers
+
+pub fun route_response_body(r: route_response) : string
+  r.body
+
+// Append a header to a route_response in a single destructure.  Doing this in
+// one match (rather than three separate consuming accessor calls) avoids a
+// Perceus refcount corruption seen when chained in a short-circuiting branch.
+pub fun route_add_header(resp: route_response, name: string, value: string) : route_response
+  match resp
+    Route_response(st, hs, bd) ->
+      val sep = if hs == "" then "" else "\n"
+      Route_response(st, hs ++ sep ++ name ++ ": " ++ value, bd)
 
 // Build a request value from raw strings, running path matching and query
 // parsing the same way the dispatcher does.  Useful for tests and manual
@@ -54,6 +78,13 @@ pub fun build_request(method: string, pattern: string, path: string, query: stri
              Nothing -> []
   val qp = parse_query_params(query)
   Request(method, path, pp, qp, headers, body)
+
+// Build a request from a raw server_request for pre-routing inspection
+// (middleware).  Path params are empty because no route has matched yet;
+// query params are parsed so middleware can read them.
+pub fun build_base_request(sreq: server_request) : request
+  val qp = parse_query_params(sreq.query)
+  Request(sreq.method, sreq.path, [], qp, sreq.headers, sreq.body)
 
 // ---------------------------------------------------------------------------
 // Path pattern matching
@@ -72,7 +103,10 @@ pub fun match_path(pattern: string, path: string) : maybe<list<(string, string)>
 
 // Substring [start, endx) using supported sslice ops. Koka has no s[a:b] syntax.
 fun str_slice(s : string, start : int, endx : int) : string
-  s.slice.sslice/drop(start).sslice/extend(endx - s.count).string
+  // Build a fresh string from the char list.  Avoids sslice views that share
+  // the source buffer (which dangle/double-free when the slice outlives the
+  // source, e.g. a token returned from bearer_token into user code).
+  s.list.drop(start).take(endx - start).string
 
 fun normalize(s: string) : string
   if s != "/" && s.ends-with("/").bool then str_slice(s, 0, s.count - 1) else s
@@ -223,6 +257,27 @@ fun dispatch_loop(sreq: server_request, qparams: list<(string, string)>, routes:
             dispatch_loop(sreq, qparams, rest)
           Just(params) ->
             val req = Request(sreq.method, sreq.path, params, qparams, sreq.headers, sreq.body)
+            (r.handler_fn)(req)
+
+// Dispatch an already-built request against the routes.  Used by the
+// middleware pipeline so the raw server_request (which holds a C pointer) is
+// never captured in closures — only pure request data flows through the chain.
+pub fun dispatch_request(base: request, routes: list<route>) : io route_response
+  dispatch_req_loop(base, routes)
+
+fun dispatch_req_loop(base: request, routes: list<route>) : io route_response
+  match routes
+    [] ->
+      Route_response(404, "Content-Type: text/plain", "Not Found")
+    Cons(r, rest) ->
+      val method_ok = r.method == "*" || to-lower(r.method) == to-lower(base.method)
+      if !method_ok then dispatch_req_loop(base, rest)
+      else
+        match match_path(r.pattern, base.path)
+          Nothing ->
+            dispatch_req_loop(base, rest)
+          Just(params) ->
+            val req = Request(base.method, base.path, params, base.query_params, base.headers, base.body)
             (r.handler_fn)(req)
 
 // ---------------------------------------------------------------------------

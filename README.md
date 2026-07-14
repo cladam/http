@@ -246,6 +246,63 @@ Each handler receives a `request`. Read from it with these helpers (all take
 | `error_response(msg)` | `500` with the message |
 | `status_response(status, body)` | Custom status with a plain-text body |
 
+### Middleware
+
+`middleware.hc` adds a Starlette-style middleware chain around the router. A
+middleware is a function `(req, next) -> route_response`:
+
+- call `next(req)` to continue the chain (and optionally transform the result)
+- return a response **without** calling `next` to short-circuit
+
+Middlewares run in list order — the first is outermost (runs first). Use
+`serve_routes_mw` instead of `serve_routes`:
+
+```rust
+import "middleware"
+
+fun main() {
+  serve_routes_mw(8080, [
+    get("/",   (req) => json_response("\{\"hello\": \"world\"\}")),
+    get("/me", (req) => json_response("\{\"ok\": true\}"))
+  ], [
+    logger(),                    // logs "METHOD /path"
+    cors("*"),                   // CORS headers + OPTIONS preflight
+    require_bearer("secret123")  // 401/403 unless a matching Bearer token
+  ])
+}
+```
+
+#### Built-in middleware
+
+| Function | Description |
+|---|---|
+| `logger()` | Log `"METHOD /path"` for each request, then continue |
+| `cors(origin)` | Add `Access-Control-Allow-Origin` to responses; answer `OPTIONS` preflight with `204` |
+| `require_bearer(token)` | `401` if the `Authorization` header is absent, `403` if the token mismatches, else continue |
+
+#### Writing your own
+
+A middleware is just a two-argument function returning a `route_response`. Build
+short-circuit responses with the `respond_*` helpers, or transform a downstream
+response with `route_add_header`:
+
+```rust
+fun request_timer() {
+  (req, next) => {
+    let resp = next(req)
+    route_add_header(resp, "X-Handled-By", "hica")
+  }
+}
+```
+
+| Function | Description |
+|---|---|
+| `serve_routes_mw(port, routes, middlewares)` | Serve with a middleware chain wrapped around the router. Never returns |
+| `respond_json(body)` | `200` `application/json` `route_response` |
+| `respond_text(body)` | `200` `text/plain` `route_response` |
+| `respond_status(code, body)` | Custom-status `text/plain` `route_response` |
+| `route_add_header(resp, name, value)` | Append a header to a `route_response` |
+
 ### Low-level server (`http_server`)
 
 For full control, use `serve` directly without the router. Your handler

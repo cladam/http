@@ -86,13 +86,50 @@ pub fun any(pattern, handler) {
 // order; the first match wins.  Unmatched requests return 404 automatically.
 // Never returns.
 pub fun serve_routes(port: int, routes) {
-  let srv = http_server_start(port)
-  routes_loop(srv, routes)
+  http_server_run(port, (node) => {
+    let raw = request_from_id(node)
+    let resp = dispatch_routes(raw, routes)
+    http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
+  })
 }
 
-pub fun routes_loop(srv, routes) {
-  let raw = http_server_accept(srv)
-  let resp = dispatch_routes(raw, routes)
-  http_server_respond(srv, raw, resp.status, resp.headers, resp.body)
-  routes_loop(srv, routes)
+// --- Middleware ---
+//
+// A middleware wraps the whole request/response cycle (Starlette-style):
+//
+//   fun my_mw(req, next) {
+//     // ...inspect/short-circuit before...
+//     let resp = next(req)   // run the rest of the chain (route_response)
+//     // ...transform the response after...
+//     resp
+//   }
+//
+// Return a response WITHOUT calling `next` to short-circuit (auth, preflight).
+// Middlewares run in list order: the first is outermost (runs first).
+// Build responses for short-circuits with the respond_* helpers in
+// middleware.hc, or with make_route_response directly.
+
+// Start serving with a middleware chain wrapped around the router.
+// Unmatched requests still return 404 automatically.  Never returns.
+// The middleware pipeline is composed once and reused for every request.
+pub fun serve_routes_mw(port: int, routes, middlewares) {
+  let pipeline = apply_mw(middlewares, routes)
+  http_server_run(port, (node) => {
+    let raw = request_from_id(node)
+    let base = build_base_request(raw)
+    let resp = pipeline(base)
+    http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
+  })
+}
+
+// Compose a middleware list into a single (request) -> route_response function.
+// The innermost link runs the router; each middleware wraps the next.
+pub fun apply_mw(middlewares, routes) {
+  match middlewares {
+    [] => (req) => dispatch_request(req, routes),
+    [mw, ..rest] => {
+      let inner = apply_mw(rest, routes)
+      (req) => mw(req, inner)
+    }
+  }
 }
