@@ -82,6 +82,26 @@ pub fun any(pattern, handler) {
   wrap_handler("*", pattern, handler)
 }
 
+// --- Route grouping ---
+
+// Mount a set of routes under a shared path prefix (like Ktor's
+// `route("/tasks") { ... }`). Returns a new list of routes with `prefix`
+// prepended to each pattern. Because it returns a plain list it composes with
+// `+` and nests:
+//
+//   serve_routes(8080,
+//     group("/tasks", [
+//       get("/",     list_tasks),    // GET  /tasks
+//       get("/{id}", get_task),      // GET  /tasks/{id}
+//       post("/",    create_task)    // POST /tasks
+//     ]) +
+//     [ get("/health", health) ])    // GET  /health
+//
+// Groups nest — group("/api", group("/v1", [...])) prefixes "/api/v1".
+pub fun group(prefix, routes) {
+  map(routes, (r) => prefix_route(prefix, r))
+}
+
 // --- Server entry point ---
 
 // Start serving on port.  Each incoming request is matched against routes in

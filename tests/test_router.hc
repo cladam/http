@@ -132,6 +132,58 @@ test "path_int_opt returns None for non-numeric input" {
 }
 
 // ============================================================
+// Route grouping
+// ============================================================
+
+test "group prefixes each route pattern" {
+  let routes = group("/tasks", [
+    get("/",         (req) => text_response("all")),
+    get("/\{id\}",   (req) => text_response("one")),
+    post("/",        (req) => text_response("new"))
+  ])
+  match routes {
+    [a, b, c] => {
+      assert(route_pattern(a) == "/tasks")
+      assert(route_pattern(b) == "/tasks/\{id\}")
+      assert(route_pattern(c) == "/tasks")
+    },
+    _ => assert(false)
+  }
+}
+
+test "group preserves each route method" {
+  let routes = group("/tasks", [
+    get("/",  (req) => text_response("all")),
+    post("/", (req) => text_response("new"))
+  ])
+  match routes {
+    [a, b] => {
+      assert(route_method(a) == "GET")
+      assert(route_method(b) == "POST")
+    },
+    _ => assert(false)
+  }
+}
+
+test "group nests to build a compound prefix" {
+  let routes = group("/api", group("/v1", [
+    get("/items", (req) => text_response("items"))
+  ]))
+  match routes {
+    [a] => assert(route_pattern(a) == "/api/v1/items"),
+    _   => assert(false)
+  }
+}
+
+test "group collapses a trailing slash in the prefix" {
+  let routes = group("/tasks/", [ get("/\{id\}", (req) => text_response("x")) ])
+  match routes {
+    [a] => assert(route_pattern(a) == "/tasks/\{id\}"),
+    _   => assert(false)
+  }
+}
+
+// ============================================================
 // Query parameter extraction
 // ============================================================
 

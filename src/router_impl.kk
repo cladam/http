@@ -42,6 +42,32 @@ pub struct route
 pub fun make_route(method: string, pattern: string, handler_fn: (request) -> io route_response) : route
   Route(method, pattern, handler_fn)
 
+// Join a route prefix and pattern with exactly one slash between them.
+// An empty or "/" pattern maps to the prefix itself.
+//   "/tasks"  + "/"      -> "/tasks"
+//   "/tasks"  + "/{id}"  -> "/tasks/{id}"
+//   "/tasks/" + "{id}"   -> "/tasks/{id}"
+//   "/"       + "/{id}"  -> "/{id}"
+fun join_paths(pfx: string, pattern: string) : string
+  val p = if pfx.ends-with("/").is-just
+          then pfx.list.take(pfx.count - 1).string
+          else pfx
+  if pattern == "" || pattern == "/" then (if p == "" then "/" else p)
+  elif pattern.starts-with("/").is-just then p ++ pattern
+  else p ++ "/" ++ pattern
+
+// Prepend `pfx` to a route's pattern, producing a new route. Used by the
+// `group` helper in router.hc to mount a set of routes under a shared path.
+pub fun prefix_route(pfx: string, r: route) : route
+  Route(r.method, join_paths(pfx, r.pattern), r.handler_fn)
+
+// Read a route's HTTP method / URL pattern (for testing and introspection).
+pub fun route_method(r: route) : string
+  r.method
+
+pub fun route_pattern(r: route) : string
+  r.pattern
+
 // `noinline` so the Route_response allocation is never fused (via Perceus reuse)
 // with a caller's drop of an unrelated value — that fusion corrupts the heap when
 // a short-circuiting middleware drops its `next` closure in the same branch.

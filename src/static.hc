@@ -45,15 +45,6 @@ pub fun is_safe_rel(rel: string) : bool {
 // Serve a single file for `req` from under `dir`, using the captured "*"
 // wildcard as the relative path. An empty capture serves "index.html".
 // Returns 403 on an unsafe path and 404 when the file is missing.
-//
-// Wrap this in a named handler and mount it on a "*" route:
-//
-//   fun assets(req) => serve_file_from(req, "./public")
-//   serve_routes(8080, [ get("/static/*", assets) ])
-//
-// (A named function is required — a returned closure that reads files does not
-// currently type-check in hica because the file-system effect is not inferred
-// through the closure.)
 pub fun serve_file_from(req, dir: string) {
   let rel = path_str(req, "*")
   let target = if rel == "" { "index.html" } else { rel }
@@ -63,6 +54,29 @@ pub fun serve_file_from(req, dir: string) {
     match read_file(dir + "/" + target) {
       Ok(content) => content_response(200, content_type_for(target), content),
       Err(_)      => not_found_response()
+    }
+  }
+}
+
+// Return a handler closure that serves files from `dir` under a "*" route.
+// Mount it directly on a wildcard route:
+//
+//   serve_routes(8080, [
+//     get("/static/*", serve_dir("./public"))
+//   ])
+//
+// A request for /static/css/app.css reads ./public/css/app.css.
+pub fun serve_dir(dir: string) {
+  (req) => {
+    let rel = path_str(req, "*")
+    let target = if rel == "" { "index.html" } else { rel }
+    if !is_safe_rel(target) {
+      status_response(403, "Forbidden")
+    } else {
+      match read_file(dir + "/" + target) {
+        Ok(content) => content_response(200, content_type_for(target), content),
+        Err(_)      => not_found_response()
+      }
     }
   }
 }

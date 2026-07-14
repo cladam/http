@@ -220,10 +220,25 @@ fun main() {
 | `delete(pattern, handler)` | Register a `DELETE` route |
 | `patch(pattern, handler)` | Register a `PATCH` route |
 | `any(pattern, handler)` | Match any HTTP method (catch-all) |
+| `group(prefix, routes)` | Prefix a list of routes with a shared path |
 | `serve_routes(port, routes)` | Start serving; dispatches to routes, auto-404. Never returns |
 
 Patterns support `{name}` path parameters, e.g. `/items/{id}/tags/{tag}`.
 Trailing slashes are normalised.
+
+`group` mounts a set of routes under a shared prefix (like Ktor's
+`route("/tasks") { ... }`). It returns a plain list, so it composes with `+`
+and nests:
+
+```rust
+serve_routes(8080,
+  group("/tasks", [
+    get("/",     list_tasks),    // GET  /tasks
+    get("/{id}", get_task),      // GET  /tasks/{id}
+    post("/",    create_task)    // POST /tasks
+  ]) +
+  [ get("/health", health) ])    // GET  /health
+```
 
 #### Request helpers
 
