@@ -88,7 +88,7 @@ pub fun any(pattern, handler) {
 pub fun serve_routes(port: int, routes) {
   http_server_run(port, (node) => {
     let raw = request_from_id(node)
-    let resp = dispatch_routes(raw, routes)
+    let resp = dispatch_routes_safe(raw, routes)
     http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
   })
 }
@@ -117,7 +117,7 @@ pub fun serve_routes_mw(port: int, routes, middlewares) {
   http_server_run(port, (node) => {
     let raw = request_from_id(node)
     let base = build_base_request(raw)
-    let resp = pipeline(base)
+    let resp = run_pipeline_safe(base, pipeline)
     http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
   })
 }

@@ -175,7 +175,10 @@ single-threaded). This is well suited to I/O-bound services and tooling.
 
 `router.hc` provides a FastAPI-style typed router: declare routes with
 `get`/`post`/`put`/`delete`/`patch`, and the first matching route wins.
-Unmatched requests return `404` automatically.
+Unmatched requests return `404` automatically. If a handler raises an exception
+(a bad index, `unwrap` of an `Err`, an explicit throw, …), it is caught and
+turned into a `500 Internal Server Error` — the server stays healthy and keeps
+serving other requests.
 
 ```rust
 import "router"

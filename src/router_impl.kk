@@ -281,6 +281,33 @@ fun dispatch_req_loop(base: request, routes: list<route>) : io route_response
             (r.handler_fn)(req)
 
 // ---------------------------------------------------------------------------
+// Exception guard
+//
+// A handler may raise an exception (bad list index, unwrap of an Err, division
+// by zero, an explicit throw, ...).  Left unhandled, the exception aborts the
+// request inside libmicrohttpd's callback and poisons the event loop so every
+// later request fails too.  These wrappers catch any exception and return a
+// 500 response instead, keeping the server healthy.
+// ---------------------------------------------------------------------------
+
+fun internal_error() : route_response
+  Route_response(500, "Content-Type: text/plain", "Internal Server Error")
+
+// Dispatch a raw server_request, converting any handler exception into a 500.
+pub fun dispatch_routes_safe(sreq: server_request, routes: list<route>) : io route_response
+  match try({ dispatch_routes(sreq, routes) })
+    Ok(r)      -> r
+    Error(_ex) -> internal_error()
+
+// Run a composed middleware pipeline, converting any exception into a 500.
+// The pipeline is the last parameter so hica's extern-signature parser reads
+// the function type cleanly (mirroring make_route).
+pub fun run_pipeline_safe(base: request, pipeline: (request) -> io route_response) : io route_response
+  match try({ pipeline(base) })
+    Ok(r)      -> r
+    Error(_ex) -> internal_error()
+
+// ---------------------------------------------------------------------------
 // Integer parsing (hand-rolled to avoid stdlib version uncertainty)
 // ---------------------------------------------------------------------------
 

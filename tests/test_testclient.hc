@@ -100,3 +100,22 @@ test "test_request_mw honours a short-circuiting middleware" {
   let r = test_request_mw(routes, [block], "GET", "/", "", "")
   assert(route_response_status(r) == 403)
 }
+
+// ============================================================
+// Exception guard — a throwing handler becomes a 500, not a crash
+// ============================================================
+
+test "a throwing handler is turned into a 500" {
+  let routes = [ get("/boom", (req) => text_response(unwrap(Err("kaboom")))) ]
+  let base = build_request("GET", "/boom", "/boom", "", "", "")
+  let r = run_pipeline_safe(base, apply_mw([], routes))
+  assert(route_response_status(r) == 500)
+}
+
+test "a normal handler passes through the guard unchanged" {
+  let routes = [ get("/", (req) => text_response("ok")) ]
+  let base = build_request("GET", "/", "/", "", "", "")
+  let r = run_pipeline_safe(base, apply_mw([], routes))
+  assert(route_response_body(r) == "ok")
+}
+
