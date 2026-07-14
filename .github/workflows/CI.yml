@@ -111,6 +111,14 @@ jobs:
           hica build examples/server_router.hc -o http_router_example
           echo "router example built (router + json + libmicrohttpd) OK"
 
+      - name: Build typed-body example (router + json decode + libmicrohttpd)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -e
+          hica build examples/server_typed.hc -o http_typed_example
+          echo "typed-body example built (router + json decode + libmicrohttpd) OK"
+
       - name: Build middleware example (router + middleware + libmicrohttpd)
         if: runner.os != 'Windows'
         shell: bash

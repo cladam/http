@@ -303,6 +303,69 @@ fun request_timer() {
 | `respond_status(code, body)` | Custom-status `text/plain` `route_response` |
 | `route_add_header(resp, name, value)` | Append a header to a `route_response` |
 
+### Typed request bodies
+
+`body.hc` decodes a JSON request body into your own struct with validation,
+returning **422 Unprocessable Entity** (as FastAPI does) on malformed or invalid
+input. It is an opt-in module — importing it pulls in the [json](https://github.com/cladam/json)
+library, and re-exports the `Json` type and `json_emit` so you can build responses too.
+
+```rust
+import "body"
+
+struct Item { name: string, price: float, in_stock: bool }
+
+// A decoder is `(Json) -> result<Item, string>`: chain field decoders and
+// build your struct, or return an error message.
+fun decode_item(doc: Json) : result<Item, string> {
+  match field_str(doc, "name") {
+    Err(e) => Err(e),
+    Ok(name) => match field_num(doc, "price") {
+      Err(e) => Err(e),
+      Ok(price) => match opt_bool(doc, "in_stock") {
+        Err(e) => Err(e),
+        Ok(stock) => Ok(Item { name: name, price: price, in_stock: unwrap_maybe_or(stock, true) })
+      }
+    }
+  }
+}
+
+fun handle_create(req) : ServerResponse {
+  match decode_body(req, decode_item) {
+    Ok(item) => json_response(json_emit(JObject([("name", JString(item.name))]))),
+    Err(msg) => unprocessable(msg)   // 422 with the validation message
+  }
+}
+```
+
+#### Field decoders
+
+Each returns `Ok(value)` when the field is present and the right type,
+`Err(message)` when it is missing or the wrong type.
+
+| Function | Returns | Description |
+|---|---|---|
+| `field_str(doc, key)` | `result<string, string>` | Required string field |
+| `field_int(doc, key)` | `result<int, string>` | Required number, rounded to `int` |
+| `field_num(doc, key)` | `result<float, string>` | Required floating-point field |
+| `field_bool(doc, key)` | `result<bool, string>` | Required boolean field |
+
+Optional variants return `Ok(None)` when absent, `Ok(Some(v))` when present and
+correct, and `Err` when present but the wrong type:
+
+| Function | Returns |
+|---|---|
+| `opt_str(doc, key)` | `result<maybe<string>, string>` |
+| `opt_int(doc, key)` | `result<maybe<int>, string>` |
+| `opt_bool(doc, key)` | `result<maybe<bool>, string>` |
+
+#### Body + response helpers
+
+| Function | Description |
+|---|---|
+| `decode_body(req, decoder)` | Parse the request body as JSON, then run `decoder`. `Err` on malformed JSON or a decode failure |
+| `unprocessable(msg)` | `422 Unprocessable Entity` with the message |
+
 ### Low-level server (`http_server`)
 
 For full control, use `serve` directly without the router. Your handler
