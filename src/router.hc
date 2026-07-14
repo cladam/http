@@ -98,8 +98,8 @@ pub fun any(pattern, handler) {
 //     [ get("/health", health) ])    // GET  /health
 //
 // Groups nest — group("/api", group("/v1", [...])) prefixes "/api/v1".
-pub fun group(prefix, routes) {
-  map(routes, (r) => prefix_route(prefix, r))
+pub fun group(pfx, routes) {
+  group_routes(pfx, routes)
 }
 
 // --- Server entry point ---
@@ -111,6 +111,31 @@ pub fun serve_routes(port: int, routes) {
   http_server_run(port, (node) => {
     let raw = request_from_id(node)
     let resp = dispatch_routes_safe(raw, routes)
+    http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
+  })
+}
+
+// --- Custom error handling (Ktor StatusPages-style) ---
+//
+// By default an exception raised inside a handler becomes a plain
+// "500 Internal Server Error". Supply an `on_error` callback to decide the
+// response yourself. It receives the exception message and returns a
+// ServerResponse, so you can render a JSON error body or map specific
+// messages to other status codes:
+//
+//   serve_routes_with_errors(8080, routes, (msg) =>
+//     json_status(500, "\{\"error\": \"" + msg + "\"\}"))
+//
+// The event loop stays healthy regardless; unmatched routes still 404.
+// Never returns.
+pub fun serve_routes_with_errors(port: int, routes, on_error) {
+  let wrapped = (msg) => {
+    let resp = on_error(msg)
+    make_route_response(response_status(resp), response_headers(resp), response_body(resp))
+  }
+  http_server_run(port, (node) => {
+    let raw = request_from_id(node)
+    let resp = dispatch_routes_caught(raw, routes, wrapped)
     http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
   })
 }
@@ -140,6 +165,23 @@ pub fun serve_routes_mw(port: int, routes, middlewares) {
     let raw = request_from_id(node)
     let base = build_base_request(raw)
     let resp = run_pipeline_safe(base, pipeline)
+    http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
+  })
+}
+
+// serve_routes_mw with a custom error handler (see serve_routes_with_errors).
+// `on_error` receives the caught exception message and returns a ServerResponse.
+// Never returns.
+pub fun serve_routes_mw_with_errors(port: int, routes, middlewares, on_error) {
+  let pipeline = apply_mw(middlewares, routes)
+  let wrapped = (msg) => {
+    let resp = on_error(msg)
+    make_route_response(response_status(resp), response_headers(resp), response_body(resp))
+  }
+  http_server_run(port, (node) => {
+    let raw = request_from_id(node)
+    let base = build_base_request(raw)
+    let resp = run_pipeline_caught(base, pipeline, wrapped)
     http_set_response(node, route_response_status(resp), route_response_headers(resp), route_response_body(resp))
   })
 }

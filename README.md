@@ -341,6 +341,35 @@ fun request_timer() {
 | `respond_status(code, body)` | Custom-status `text/plain` `route_response` |
 | `route_add_header(resp, name, value)` | Append a header to a `route_response` |
 
+### Error handling
+
+If a handler raises an exception (a bad list index, an `unwrap` of an `Err`, a
+division by zero, an explicit `throw`, ...) the server catches it and returns a
+plain `500 Internal Server Error`, keeping the event loop healthy. To decide the
+response yourself — like Ktor's `StatusPages` `exception<T> { ... }` — use the
+`_with_errors` variants and pass an `on_error` callback. It receives the caught
+exception message and returns a `ServerResponse`:
+
+```rust
+fun on_error(msg: string) : ServerResponse {
+  json_status(500, "\{\"error\": \"internal\"\}")
+}
+
+fun main() {
+  serve_routes_with_errors(8080, [
+    get("/",     (req) => json_response("\{\"ok\": true\}")),
+    get("/boom", (req) => json_response("ok " + show(1 / 0)))  // raises
+  ], on_error)
+}
+```
+
+Unmatched routes still return `404`. See [`examples/server_errors.hc`](examples/server_errors.hc).
+
+| Function | Description |
+|---|---|
+| `serve_routes_with_errors(port, routes, on_error)` | Like `serve_routes`, but a caught exception's message is passed to `on_error`, which returns the response. Never returns |
+| `serve_routes_mw_with_errors(port, routes, middlewares, on_error)` | `serve_routes_mw` with a custom error handler. Never returns |
+
 ### Typed request bodies
 
 `body.hc` decodes a JSON request body into your own struct with validation,

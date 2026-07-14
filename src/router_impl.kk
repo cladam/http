@@ -35,6 +35,13 @@ pub struct route
   pattern : string
   handler_fn : (request) -> io route_response
 
+// Function-type aliases. Naming these keeps `->` arrows out of parameter lists
+// where a function-typed argument is not the final parameter — hica's extern
+// signature reader miscounts arity when an arrow-typed param is followed by
+// another param, so the alias lets it parse these signatures cleanly.
+pub alias handler_type   = (request) -> io route_response
+pub alias err_handler    = (string) -> io route_response
+
 // ---------------------------------------------------------------------------
 // Constructors (called from Hica, which cannot call Koka constructors directly)
 // ---------------------------------------------------------------------------
@@ -60,6 +67,12 @@ fun join_paths(pfx: string, pattern: string) : string
 // `group` helper in router.hc to mount a set of routes under a shared path.
 pub fun prefix_route(pfx: string, r: route) : route
   Route(r.method, join_paths(pfx, r.pattern), r.handler_fn)
+
+// Apply prefix_route to every route in a list. Typed here so Koka can
+// resolve `map` unambiguously (untyped `routes` in hica-generated code
+// makes `map` ambiguous across list/maybe/either/vector).
+pub fun group_routes(pfx: string, routes: list<route>) : list<route>
+  routes.map(fn(r) prefix_route(pfx, r))
 
 // Read a route's HTTP method / URL pattern (for testing and introspection).
 pub fun route_method(r: route) : string
@@ -388,6 +401,21 @@ pub fun run_pipeline_safe(base: request, pipeline: (request) -> io route_respons
   match try({ pipeline(base) })
     Ok(r)      -> r
     Error(_ex) -> internal_error()
+
+// Like dispatch_routes_safe, but hands the caught exception's message to a
+// user-supplied error handler instead of returning a fixed 500 — Ktor's
+// StatusPages exception<T> { ... }. The handler chooses the status and body.
+pub fun dispatch_routes_caught(sreq: server_request, routes: list<route>, on_error: err_handler) : io route_response
+  match try({ dispatch_routes(sreq, routes) })
+    Ok(r)     -> r
+    Error(ex) -> on_error(ex.message)
+
+// Like run_pipeline_safe, but routes the caught exception's message to a
+// user-supplied error handler.
+pub fun run_pipeline_caught(base: request, pipeline: handler_type, on_error: err_handler) : io route_response
+  match try({ pipeline(base) })
+    Ok(r)     -> r
+    Error(ex) -> on_error(ex.message)
 
 // ---------------------------------------------------------------------------
 // Integer parsing (hand-rolled to avoid stdlib version uncertainty)
