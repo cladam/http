@@ -491,6 +491,83 @@ array — `ok_json(jarr(map(items, encode_item)))`.
 | `created_json(j)` | `ServerResponse` | `201 Created` with the encoded JSON body |
 | `json_response_of(status, j)` | `ServerResponse` | Custom status with the encoded JSON body |
 
+### Multipart / file uploads
+
+`multipart.hc` (included in the `web` barrel) parses `multipart/form-data`
+request bodies into a list of `Part` values. The parsing is done in the C layer
+by libmicrohttpd's `MHD_PostProcessor`, so each part's bytes arrive
+incrementally and are fully accumulated before your handler is called.
+
+Each part is binary-safe — `Part.bytes` is a raw byte string and can hold
+arbitrary data including NUL bytes. Individual parts are capped at **64 MiB** by
+the C layer; uploads beyond that are rejected by MHD before the handler is
+invoked.
+
+```rust
+import "web"     // re-exports multipart
+
+// Publish endpoint: accepts a JSON metadata part and a binary tarball part.
+fun handle_publish(req) {
+  match req_part(req, "metadata") {
+    None       => bad_request("missing 'metadata' part"),
+    Some(meta) => match req_part(req, "tarball") {
+      None      => bad_request("missing 'tarball' part"),
+      Some(tar) => {
+        let name = path_str(req, "name")
+        let ver  = path_str(req, "version")
+        // tar.bytes contains the raw tarball bytes; tar.filename is the
+        // original filename sent by the client.
+        // Verify sha256(tar.bytes) against meta, write to store, etc.
+        json_response("\{\"ok\": true, \"package\": \"" + name + "\"\}")
+      }
+    }
+  }
+}
+
+fun main() {
+  serve_routes(8080, [
+    put("/api/v1/packages/{name}/{version}", (req) => handle_publish(req))
+  ])
+}
+```
+
+Test with curl:
+
+```sh
+curl -X PUT http://localhost:8080/api/v1/packages/json/0.1.0 \
+     -F metadata='{"name":"json","version":"0.1.0","checksum":"sha256:abc"}' \
+     -F tarball=@json-0.1.0.tar.gz
+```
+
+#### `Part` struct
+
+```
+Part {
+  name         : string   // form-field name (always present)
+  filename     : string   // original filename; "" for non-file fields
+  content_type : string   // MIME type from the part header; "" if absent
+  bytes        : string   // raw bytes (binary-safe)
+}
+```
+
+#### Multipart helpers
+
+| Function | Description |
+|---|---|
+| `req_part(req, name)` | Get a named part; `None` if absent or the request is not multipart |
+| `req_parts(req)` | All parts as a list (empty for non-multipart requests) |
+| `req_files(req)` | Only parts that carry a filename (file upload parts) |
+| `is_multipart(req)` | `true` if the request is multipart and at least one part was parsed |
+| `part_str(req, name)` | Convenience — bytes of a named text part as `maybe<string>` |
+
+Non-file form fields (sent without a `filename` attribute) appear as parts with
+`filename == ""`. Use `req_part` to read them by name, or iterate `req_parts`
+to process all parts. Text fields are available immediately as `Part.bytes`; no
+URL-decoding is needed (MHD handles that).
+
+See [`examples/server_multipart.hc`](examples/server_multipart.hc) for a
+runnable publish-endpoint example.
+
 ### Low-level server (`http_server`)
 
 For full control, use `serve` directly without the router. Your handler
