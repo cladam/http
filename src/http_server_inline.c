@@ -72,12 +72,42 @@ static void hcsrv_buf_free(hcsrv_buf_t* sb) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Multipart parts                                                      */
+/* ------------------------------------------------------------------ */
+
+/* Maximum size of a single multipart part (64 MiB). */
+#define HCSRV_PART_MAX_BYTES ((size_t)(64 * 1024 * 1024))
+
+typedef struct {
+  char*  name;          /* form-field name (always present) */
+  char*  filename;      /* original filename; NULL for non-file fields */
+  char*  content_type;  /* MIME type; NULL if not specified */
+  char*  bytes;         /* raw bytes (binary-safe; NOT NUL-terminated) */
+  size_t bytes_len;
+} hcsrv_part_t;
+
+static void hcsrv_part_free(hcsrv_part_t* p) {
+  if (!p) return;
+  free(p->name);
+  free(p->filename);
+  free(p->content_type);
+  free(p->bytes);
+}
+
+/* ------------------------------------------------------------------ */
 /* Per-connection upload accumulator (lives on MHD thread)             */
 /* ------------------------------------------------------------------ */
 
 typedef struct {
+  /* Raw body (non-multipart requests). */
   char*  body;
   size_t body_size;
+
+  /* Multipart state (NULL when not a multipart/form-data request). */
+  struct MHD_PostProcessor* post_processor;
+  hcsrv_part_t* parts;
+  size_t        parts_count;
+  size_t        parts_cap;
 } hcsrv_upload_t;
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +124,9 @@ struct hcsrv_req {
   char*  headers;  /* raw "Name: Value\n..." */
   char*  body;
   size_t body_size;
+  /* Multipart parts (empty for non-multipart requests). */
+  hcsrv_part_t* parts;
+  size_t        parts_count;
   /* Response staged by the Koka handler via kk_http_set_response. */
   int    resp_status;
   char*  resp_headers;   /* "Name: Value\n..." (may be NULL) */
@@ -142,6 +175,75 @@ static enum MHD_Result hcsrv_collect_query(void* cls, enum MHD_ValueKind kind,
 }
 
 /* ------------------------------------------------------------------ */
+/* Multipart post-data iterator (MHD callback)                         */
+/* ------------------------------------------------------------------ */
+
+/* Find the index of a part by name, or -1 if not found. */
+static int hcsrv_upload_find_part(hcsrv_upload_t* up, const char* key) {
+  for (int i = (int)up->parts_count - 1; i >= 0; i--) {
+    if (up->parts[i].name && strcmp(up->parts[i].name, key) == 0)
+      return i;
+  }
+  return -1;
+}
+
+/* Append raw bytes to a part, respecting the per-part size cap. */
+static int hcsrv_part_append(hcsrv_part_t* p, const char* data, size_t size) {
+  if (!data || size == 0) return 1;
+  if (p->bytes_len + size > HCSRV_PART_MAX_BYTES) return 0; /* size cap */
+  char* np = (char*)realloc(p->bytes, p->bytes_len + size);
+  if (!np) return 0;
+  memcpy(np + p->bytes_len, data, size);
+  p->bytes      = np;
+  p->bytes_len += size;
+  return 1;
+}
+
+static enum MHD_Result hcsrv_post_iter(
+  void* cls,
+  enum MHD_ValueKind kind,
+  const char* key,
+  const char* filename,
+  const char* content_type,
+  const char* transfer_encoding,
+  const char* data,
+  uint64_t    off,
+  size_t      size)
+{
+  (void)kind; (void)transfer_encoding;
+  hcsrv_upload_t* up = (hcsrv_upload_t*)cls;
+  if (!key) return MHD_YES;
+
+  /* When off==0 the part is starting fresh — create a new entry unless we
+     already have one with this name from a previous chunk sequence (which
+     would indicate repeated field names; we create distinct entries). */
+  int idx = (off == 0) ? -1 : hcsrv_upload_find_part(up, key);
+
+  if (idx < 0) {
+    /* Grow parts array if needed. */
+    if (up->parts_count == up->parts_cap) {
+      size_t new_cap = up->parts_cap ? up->parts_cap * 2 : 4;
+      hcsrv_part_t* np = (hcsrv_part_t*)realloc(up->parts,
+                                                  new_cap * sizeof(hcsrv_part_t));
+      if (!np) return MHD_NO;
+      up->parts     = np;
+      up->parts_cap = new_cap;
+    }
+    hcsrv_part_t* p = &up->parts[up->parts_count++];
+    memset(p, 0, sizeof(*p));
+    p->name         = strdup(key);
+    p->filename     = filename    ? strdup(filename)     : NULL;
+    p->content_type = content_type ? strdup(content_type) : NULL;
+    idx = (int)(up->parts_count - 1);
+  }
+
+  if (!hcsrv_part_append(&up->parts[idx], data, size))
+    return MHD_NO;  /* size cap or OOM — abort the post processor */
+
+  return MHD_YES;
+}
+
+/* ------------------------------------------------------------------ */
 /* Free a request node (does NOT touch node->connection)               */
 /* ------------------------------------------------------------------ */
 
@@ -154,6 +256,9 @@ static void hcsrv_req_free(hcsrv_req_t* node) {
   free(node->body);
   free(node->resp_headers);
   free(node->resp_body);
+  for (size_t i = 0; i < node->parts_count; i++)
+    hcsrv_part_free(&node->parts[i]);
+  free(node->parts);
   free(node);
 }
 
@@ -168,10 +273,20 @@ static enum MHD_Result hcsrv_access_handler(
 {
   hcsrv_t* srv = (hcsrv_t*)cls;
 
-  /* First call: allocate per-connection upload state */
+  /* First call: allocate per-connection upload state; detect multipart. */
   if (*con_cls == NULL) {
     hcsrv_upload_t* up = (hcsrv_upload_t*)calloc(1, sizeof(*up));
     if (!up) return MHD_NO;
+
+    /* If this is a multipart/form-data request, create a post processor.
+       Use a 64 KiB processing buffer — MHD streams data through it. */
+    const char* ct = MHD_lookup_connection_value(conn, MHD_HEADER_KIND, "Content-Type");
+    if (ct && strncmp(ct, "multipart/form-data", 19) == 0) {
+      up->post_processor = MHD_create_post_processor(
+        conn, 65536, hcsrv_post_iter, up);
+      /* If creation failed, we fall back to raw body accumulation. */
+    }
+
     *con_cls = up;
     return MHD_YES;
   }
@@ -180,12 +295,19 @@ static enum MHD_Result hcsrv_access_handler(
 
   /* Accumulate body data */
   if (*upload_data_size > 0) {
-    char* p = (char*)realloc(up->body, up->body_size + *upload_data_size + 1);
-    if (!p) return MHD_NO;
-    up->body = p;
-    memcpy(up->body + up->body_size, upload_data, *upload_data_size);
-    up->body_size += *upload_data_size;
-    up->body[up->body_size] = '\0';
+    if (up->post_processor) {
+      /* Feed data to the multipart post processor. */
+      if (MHD_post_process(up->post_processor, upload_data, *upload_data_size) != MHD_YES)
+        return MHD_NO;
+    } else {
+      /* Raw body accumulation (non-multipart). */
+      char* p = (char*)realloc(up->body, up->body_size + *upload_data_size + 1);
+      if (!p) return MHD_NO;
+      up->body = p;
+      memcpy(up->body + up->body_size, upload_data, *upload_data_size);
+      up->body_size += *upload_data_size;
+      up->body[up->body_size] = '\0';
+    }
     *upload_data_size = 0;
     return MHD_YES;
   }
@@ -219,6 +341,18 @@ static enum MHD_Result hcsrv_access_handler(
     node->body      = strdup("");
     node->body_size = 0;
   }
+
+  /* Finish multipart processing and transfer parts to the node. */
+  if (up->post_processor) {
+    MHD_destroy_post_processor(up->post_processor);
+    up->post_processor = NULL;
+  }
+  node->parts       = up->parts;
+  node->parts_count = up->parts_count;
+  up->parts         = NULL;
+  up->parts_count   = 0;
+  up->parts_cap     = 0;
+
   free(up);
   *con_cls = NULL;
 
@@ -275,6 +409,9 @@ static void hcsrv_request_completed(
 {
   hcsrv_upload_t* up = (hcsrv_upload_t*)*con_cls;
   if (up) {
+    if (up->post_processor) MHD_destroy_post_processor(up->post_processor);
+    for (size_t i = 0; i < up->parts_count; i++) hcsrv_part_free(&up->parts[i]);
+    free(up->parts);
     free(up->body);
     free(up);
     *con_cls = NULL;
@@ -460,4 +597,54 @@ static kk_integer_t kk_http_now_millis(kk_context_t* ctx) {
 static kk_unit_t kk_http_flush_stdout(kk_context_t* ctx) {
   fflush(stdout);
   return kk_Unit;
+}
+
+/* ------------------------------------------------------------------ */
+/* Multipart part accessors (Koka-callable)                             */
+/* ------------------------------------------------------------------ */
+
+/* Total number of parsed multipart parts (0 for non-multipart requests). */
+static kk_integer_t kk_http_req_part_count(kk_integer_t req_int, kk_context_t* ctx) {
+  hcsrv_req_t* n = (hcsrv_req_t*)(uintptr_t)kk_integer_clamp64(req_int, ctx);
+  kk_integer_drop(req_int, ctx);
+  int count = (n) ? (int)n->parts_count : 0;
+  return kk_integer_from_int((kk_intx_t)count, ctx);
+}
+
+/* Return a field of part[idx] as a Koka string.
+   selector: 0=name, 1=filename, 2=content_type, 3=bytes (binary-safe). */
+static kk_string_t kk_http_req_part_field(kk_integer_t req_int, kk_integer_t idx_int,
+                                           kk_integer_t sel_int, kk_context_t* ctx) {
+  hcsrv_req_t* n   = (hcsrv_req_t*)(uintptr_t)kk_integer_clamp64(req_int, ctx);
+  int           idx = (int)kk_integer_clamp64(idx_int, ctx);
+  int           sel = (int)kk_integer_clamp64(sel_int, ctx);
+  kk_integer_drop(req_int, ctx);
+  kk_integer_drop(idx_int, ctx);
+  kk_integer_drop(sel_int, ctx);
+
+  if (!n || idx < 0 || (size_t)idx >= n->parts_count) {
+    return kk_string_alloc_from_utf8n(0, "", ctx);
+  }
+  const hcsrv_part_t* p = &n->parts[idx];
+  switch (sel) {
+    case 0: { /* name */
+      const char* s = p->name ? p->name : "";
+      return kk_string_alloc_from_utf8n((kk_ssize_t)strlen(s), s, ctx);
+    }
+    case 1: { /* filename */
+      const char* s = p->filename ? p->filename : "";
+      return kk_string_alloc_from_utf8n((kk_ssize_t)strlen(s), s, ctx);
+    }
+    case 2: { /* content_type */
+      const char* s = p->content_type ? p->content_type : "";
+      return kk_string_alloc_from_utf8n((kk_ssize_t)strlen(s), s, ctx);
+    }
+    case 3: { /* bytes (binary-safe) */
+      if (!p->bytes || p->bytes_len == 0)
+        return kk_string_alloc_from_utf8n(0, "", ctx);
+      return kk_string_alloc_from_utf8n((kk_ssize_t)p->bytes_len, p->bytes, ctx);
+    }
+    default:
+      return kk_string_alloc_from_utf8n(0, "", ctx);
+  }
 }

@@ -63,6 +63,15 @@ extern http_now_millis_raw() : io int
 extern http_flush_stdout_raw() : io ()
   c "kk_http_flush_stdout"
 
+// Multipart: number of parsed parts (0 for non-multipart requests).
+extern http_req_part_count_raw( req : int ) : io int
+  c "kk_http_req_part_count"
+
+// Multipart: read a field of part[idx].
+// selector: 0=name, 1=filename, 2=content_type, 3=bytes (binary-safe).
+extern http_req_part_field_raw( req : int, idx : int, sel : int ) : io string
+  c "kk_http_req_part_field"
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -117,3 +126,38 @@ pub fun request_headers( req : server_request ) : string
 
 pub fun request_body( req : server_request ) : string
   req.body
+
+// ---------------------------------------------------------------------------
+// Multipart part access — used by multipart.hc
+// ---------------------------------------------------------------------------
+
+// Number of parsed multipart parts (0 for non-multipart requests).
+pub fun http_req_part_count( req : server_request ) : io int
+  http_req_part_count_raw(req.req_id)
+
+// Name of part at index idx.
+pub fun http_req_part_name( req : server_request, idx : int ) : io string
+  http_req_part_field_raw(req.req_id, idx, 0)
+
+// Original filename of part at index idx ("" if not a file part).
+pub fun http_req_part_filename( req : server_request, idx : int ) : io string
+  http_req_part_field_raw(req.req_id, idx, 1)
+
+// Content-Type of part at index idx ("" if not specified).
+pub fun http_req_part_content_type( req : server_request, idx : int ) : io string
+  http_req_part_field_raw(req.req_id, idx, 2)
+
+// Raw bytes of part at index idx (binary-safe).
+pub fun http_req_part_bytes( req : server_request, idx : int ) : io string
+  http_req_part_field_raw(req.req_id, idx, 3)
+
+// ---------------------------------------------------------------------------
+// Multipart by-id variants — used by multipart.hc which receives the router's
+// `request` type (not `server_request`) and passes req_id explicitly.
+// ---------------------------------------------------------------------------
+
+pub fun http_part_count_by_id( req_id : int ) : io int
+  http_req_part_count_raw(req_id)
+
+pub fun http_part_field_by_id( req_id : int, idx : int, sel : int ) : io string
+  http_req_part_field_raw(req_id, idx, sel)

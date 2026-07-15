@@ -15,6 +15,8 @@ import http_server_impl
 // Enhanced request handed to every route handler.
 // path_params holds segments extracted from the route pattern (e.g. {id}).
 // query_params holds key/value pairs parsed from the query string.
+// req_id is the internal C-side hcsrv_req_t* pointer; zero for synthetic
+// requests built in tests.  It is valid only during the handler call.
 pub struct request
   method       : string
   path         : string
@@ -22,6 +24,7 @@ pub struct request
   query_params : list<(string, string)>
   headers      : string     // raw "Name: Value\n..." string
   body         : string
+  req_id       : int        // internal: C-side request handle (0 in tests)
 
 // The response type returned by route handlers.
 pub struct route_response
@@ -111,19 +114,27 @@ pub fun route_add_header(resp: route_response, name: string, value: string) : ro
 // Build a request value from raw strings, running path matching and query
 // parsing the same way the dispatcher does.  Useful for tests and manual
 // dispatch.  If the path does not match the pattern, path params are empty.
+// req_id is set to 0 (no live C request), which is correct for synthetic test
+// requests that have no multipart parts.
 pub fun build_request(method: string, pattern: string, path: string, query: string, headers: string, body: string) : request
   val pp = match match_path(pattern, path)
              Just(p) -> p
              Nothing -> []
   val qp = parse_query_params(query)
-  Request(method, path, pp, qp, headers, body)
+  Request(method, path, pp, qp, headers, body, 0)
 
 // Build a request from a raw server_request for pre-routing inspection
 // (middleware).  Path params are empty because no route has matched yet;
 // query params are parsed so middleware can read them.
+// req_id is threaded through so multipart parts are accessible in middleware.
 pub fun build_base_request(sreq: server_request) : request
   val qp = parse_query_params(sreq.query)
-  Request(sreq.method, sreq.path, [], qp, sreq.headers, sreq.body)
+  Request(sreq.method, sreq.path, [], qp, sreq.headers, sreq.body, sreq.req_id)
+
+// Expose req_id for modules (e.g. multipart.hc) that need to call raw C
+// accessors on the underlying hcsrv_req_t.
+pub fun request_req_id(req: request) : int
+  req.req_id
 
 // ---------------------------------------------------------------------------
 // Path pattern matching
@@ -447,7 +458,7 @@ fun dispatch_loop(sreq: server_request, qparams: list<(string, string)>, routes:
           Nothing ->
             dispatch_loop(sreq, qparams, rest)
           Just(params) ->
-            val req = Request(sreq.method, sreq.path, params, qparams, sreq.headers, sreq.body)
+            val req = Request(sreq.method, sreq.path, params, qparams, sreq.headers, sreq.body, sreq.req_id)
             (r.handler_fn)(req)
 
 // Dispatch an already-built request against the routes.  Used by the
@@ -468,7 +479,7 @@ fun dispatch_req_loop(base: request, routes: list<route>) : io route_response
           Nothing ->
             dispatch_req_loop(base, rest)
           Just(params) ->
-            val req = Request(base.method, base.path, params, base.query_params, base.headers, base.body)
+            val req = Request(base.method, base.path, params, base.query_params, base.headers, base.body, base.req_id)
             (r.handler_fn)(req)
 
 // ---------------------------------------------------------------------------
