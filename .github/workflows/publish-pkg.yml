@@ -57,17 +57,15 @@ jobs:
           PKG_NAME="${{ steps.meta.outputs.name }}"
           PKG_VERSION="${{ steps.meta.outputs.version }}"
           TARBALL="${PKG_NAME}-${PKG_VERSION}.tar.gz"
-          tar czf "/tmp/$TARBALL" \
-            --exclude='.git' \
-            --exclude='.koka' \
-            --exclude='*.kk' \
-            --exclude='*.kki' \
-            --exclude='.hica' \
-            --exclude='node_modules' \
-            --exclude='*.tar.gz' \
-            --exclude='*.json' \
-            --exclude='latest' \
-            -C "$PKG_DIR" .
+          # Build the tarball from git-tracked files so the package ships exactly
+          # the committed source set defined by .gitignore. This keeps the
+          # hand-written extern Koka sources (e.g. *_impl.kk, http.kk) that have
+          # no .hc to regenerate from, while generated .kk stay untracked and out.
+          if [ "$PKG_DIR" = "." ]; then
+            git archive --format=tar.gz -o "/tmp/$TARBALL" HEAD
+          else
+            git archive --format=tar.gz -o "/tmp/$TARBALL" "HEAD:$PKG_DIR"
+          fi
           mv "/tmp/$TARBALL" "$TARBALL"
           echo "TARBALL=$TARBALL" >> $GITHUB_ENV
           echo "PKG_NAME=$PKG_NAME" >> $GITHUB_ENV

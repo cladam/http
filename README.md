@@ -498,7 +498,7 @@ request bodies into a list of `Part` values. The parsing is done in the C layer
 by libmicrohttpd's `MHD_PostProcessor`, so each part's bytes arrive
 incrementally and are fully accumulated before your handler is called.
 
-Each part is binary-safe — `Part.bytes` is a raw byte string and can hold
+Each part is binary-safe: `Part.bytes` is a raw byte string and can hold
 arbitrary data including NUL bytes. Individual parts are capped at **64 MiB** by
 the C layer; uploads beyond that are rejected by MHD before the handler is
 invoked.
