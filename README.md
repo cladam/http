@@ -607,6 +607,85 @@ See [`examples/server.hc`](examples/server.hc) for the low-level API and
 [`examples/server_router.hc`](examples/server_router.hc) for the router with
 JSON request/response handling.
 
+### Cooperative Concurrency
+
+Because the HTTP server is single-threaded, a blocking call inside a handler (like a heavy computation or database query) blocks the entire server.
+
+To solve this, Hica supports cooperative concurrency and interleaves request processing with background actors. Rather than blocking the main thread, the handler immediately returns `202 Accepted` after enqueuing the payload, and a single-threaded cooperative event loop drives both server polling and background actors together.
+
+#### Non-blocking loop primitives
+
+For cooperative concurrency, use the non-blocking polling APIs:
+
+| Function | Description |
+|---|---|
+| `server_init(port, handler)` | Initialize the server on a port without starting the blocking serve loop |
+| `server_poll(srv)` | Process a single-step non-blocking HTTP event loop cycle. Returns `1` if active |
+| `server_stop(srv)` | Stop the server and clean up resources |
+
+#### Example: Non-blocking Background Worker (Webhook Processor)
+
+An incoming webhook is instantly queued, and the main cooperative loop schedules tasks to a background `WebhookWorker` actor:
+
+```rust
+import "http_server"
+import "std/actor"
+
+type WorkerMsg {
+  ProcessPayload(data: string)
+}
+
+actor WebhookWorker {
+  var processed_count = 0
+
+  receive(msg) => match msg {
+    ProcessPayload(data) => {
+      processed_count = processed_count + 1
+      println("  [Worker] Processed webhook #" + show(processed_count) + " data: " + data)
+    }
+  }
+}
+
+pub fun main() {
+  println("Initializing cooperative HTTP server on port 8080...")
+  var worker_state = WebhookWorkerState { processed_count: 0 }
+  var pending_payloads = []
+
+  // Non-blocking server initialization
+  let srv = server_init(8080, (req) => {
+    let payload = request_body(req)
+    pending_payloads = pending_payloads + [payload]
+    accepted("\{\"status\": \"queued\"\}")
+  })
+
+  // Start the cooperative polling loop
+  run_loop(srv, worker_state, pending_payloads)
+  server_stop(srv)
+}
+
+pub fun run_loop(srv: int, worker: WebhookWorkerState, payloads: list<string>) : () {
+  // Process one HTTP server poll cycle
+  let _ = server_poll(srv)
+
+  // Dispatch pending tasks to the actor cooperatively
+  var next_worker = worker
+  var next_payloads = payloads
+
+  match payloads {
+    [] => ()
+    [payload, ..rest] => {
+      next_worker = webhookworker_receive(worker, ProcessPayload(payload))
+      next_payloads = rest
+    }
+  }
+
+  // Recurse to keep the single-threaded event loop alive
+  run_loop(srv, next_worker, next_payloads)
+}
+```
+
+See [`examples/server_cooperative_worker.hc`](examples/server_cooperative_worker.hc) for a complete, runnable simulation.
+
 ## Testing your app
 
 `testclient.hc` dispatches requests straight through your routes without opening

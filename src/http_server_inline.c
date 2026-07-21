@@ -544,6 +544,69 @@ static kk_unit_t kk_http_server_run(
   return kk_Unit;
 }
 
+/* Cooperative non-blocking non-thread APIs */
+
+static kk_integer_t kk_http_server_init(
+  kk_integer_t   port_int,
+  kk_function_t  handler,
+  kk_context_t*  ctx)
+{
+  int port = (int)kk_integer_clamp64(port_int, ctx);
+  kk_integer_drop(port_int, ctx);
+
+  hcsrv_t* srv = (hcsrv_t*)calloc(1, sizeof(*srv));
+  if (!srv) { kk_function_drop(handler, ctx); return kk_integer_from_int(0, ctx); }
+  srv->handler = handler;   /* take ownership for the server's lifetime */
+  srv->ctx     = ctx;
+
+  srv->daemon = MHD_start_daemon(
+    MHD_NO_FLAG,
+    (uint16_t)port,
+    NULL, NULL,
+    hcsrv_access_handler, srv,
+    MHD_OPTION_CONNECTION_LIMIT,      (unsigned int)4096,
+    MHD_OPTION_LISTEN_BACKLOG_SIZE,   (unsigned int)1024,
+    MHD_OPTION_NOTIFY_COMPLETED,
+      (MHD_RequestCompletedCallback)hcsrv_request_completed, NULL,
+    MHD_OPTION_END
+  );
+  if (!srv->daemon) {
+    kk_function_drop(srv->handler, ctx);
+    free(srv);
+    return kk_integer_from_int(0, ctx);
+  }
+
+  return kk_integer_from_int64((int64_t)(uintptr_t)srv, ctx);
+}
+
+static kk_integer_t kk_http_server_poll(
+  kk_integer_t   srv_int,
+  kk_context_t*  ctx)
+{
+  hcsrv_t* srv = (hcsrv_t*)(uintptr_t)kk_integer_clamp64(srv_int, ctx);
+  kk_integer_drop(srv_int, ctx);
+  if (!srv) return kk_integer_from_int(0, ctx);
+
+  int ok = hcsrv_poll(srv);
+  return kk_integer_from_int(ok, ctx);
+}
+
+static kk_unit_t kk_http_server_stop(
+  kk_integer_t   srv_int,
+  kk_context_t*  ctx)
+{
+  hcsrv_t* srv = (hcsrv_t*)(uintptr_t)kk_integer_clamp64(srv_int, ctx);
+  kk_integer_drop(srv_int, ctx);
+  if (!srv) return kk_Unit;
+
+  if (srv->daemon) {
+    MHD_stop_daemon(srv->daemon);
+  }
+  kk_function_drop(srv->handler, ctx);
+  free(srv);
+  return kk_Unit;
+}
+
 /* Field accessors — read from the C req node, create Koka strings.
    Each call borrows req_int (Koka handles refcounting of the boxed int). */
 

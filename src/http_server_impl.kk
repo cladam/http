@@ -39,6 +39,15 @@ pub alias req_handler = (int) -> io ()
 extern http_server_run_raw( port : int, on_request : req_handler ) : io ()
   c "kk_http_server_run"
 
+extern http_server_init_raw( port : int, on_request : req_handler ) : io int
+  c "kk_http_server_init"
+
+extern http_server_poll_raw( srv_ptr : int ) : io int
+  c "kk_http_server_poll"
+
+extern http_server_stop_raw( srv_ptr : int ) : io ()
+  c "kk_http_server_stop"
+
 extern http_set_response_raw( node : int, status : int, headers : string, body : string ) : io ()
   c "kk_http_set_response"
 
@@ -83,6 +92,19 @@ extern http_req_part_field_raw( req : int, idx : int, sel : int ) : io string
 // there is no cross-thread handoff.  Never returns.
 pub fun http_server_run( port : int, on_request : req_handler ) : io ()
   http_server_run_raw(port, on_request)
+
+// Initialize the HTTP server on `port` asynchronously/non-blockingly.
+// Returns a handle (int) to the server state.
+pub fun http_server_init( port : int, on_request : req_handler ) : io int
+  http_server_init_raw(port, on_request)
+
+// Poll the HTTP server once. Returns 1 if active, 0 on stop/error.
+pub fun http_server_poll( srv_ptr : int ) : io int
+  http_server_poll_raw(srv_ptr)
+
+// Stop the HTTP server and free associated memory.
+pub fun http_server_stop( srv_ptr : int ) : io ()
+  http_server_stop_raw(srv_ptr)
 
 // Stage the response (status + headers + body) for the request node `node`.
 // Called from inside a handler; libmicrohttpd sends it once the handler returns.

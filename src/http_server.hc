@@ -154,3 +154,23 @@ pub fun serve(port: int, handler) {
     http_set_response(node, response_status(resp), response_headers(resp), response_body(resp))
   })
 }
+
+// Initialize the HTTP server on `port` non-blockingly, returning a handle.
+// Does not enter the blocking serve loop. Drive with `server_poll`.
+pub fun server_init(port: int, handler) {
+  http_server_init(port, (node) => {
+    let req = request_from_id(node)
+    let resp = handler(req)
+    http_set_response(node, response_status(resp), response_headers(resp), response_body(resp))
+  })
+}
+
+// Poll the HTTP server once. Returns 1 if active, 0 on stop/error.
+pub fun server_poll(srv: int) {
+  http_server_poll(srv)
+}
+
+// Stop the HTTP server and clean up resources.
+pub fun server_stop(srv: int) {
+  http_server_stop(srv)
+}
